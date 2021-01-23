@@ -1,138 +1,139 @@
-html {
-	min-width: 550px;
-	max-width: 700px;
-	margin: auto;
-	overflow-x: hidden;
+@media not screen and (width: 400px) { /* Excludes Edge */
+	:root {
+		min-width: 550px;
+	}
 }
 
 :root {
-	--github-green: #28a745;
 	--github-red: #cb2431;
 }
 
-input:not([type='checkbox']):not(:placeholder-shown):valid {
-	color: var(--github-green) !important;
-	border: 1px solid;
+p {
+	margin-top: 0;
 }
 
-input:not([type='checkbox']):invalid {
-	color: var(--github-red) !important;
-	border: 1px solid;
+ul {
+	padding-left: 0;
+	list-style: none;
 }
 
-input:not([type='checkbox']),
-textarea {
-	display: block;
-	box-sizing: border-box;
-	width: 100%;
+li[data-validation] {
+	margin-bottom: 0.3em;
+}
+
+[data-validation]::before {
+	content: url('data:image/svg+xml; utf8, <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16"><path fill-rule="evenodd" fill="gray" d="M8 5.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5zM4 8a4 4 0 118 0 4 4 0 01-8 0z"></path></svg>');
+	width: 16px;
+	height: 16px;
+	vertical-align: -4px;
+	margin-right: 0.3em;
+	display: inline-block;
+}
+
+[data-validation='valid']::before {
+	content: url('data:image/svg+xml; utf8, <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16"><path fill-rule="evenodd" fill="%2328a745" d="M8 16A8 8 0 108 0a8 8 0 000 16zm3.78-9.72a.75.75 0 00-1.06-1.06L6.75 9.19 5.28 7.72a.75.75 0 00-1.06 1.06l2 2a.75.75 0 001.06 0l4.5-4.5z"></path></svg>');
+}
+
+[data-validation='invalid']::before {
+	content: url('data:image/svg+xml; utf8, <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16"><path fill-rule="evenodd" fill="%23cb2431" d="M1.5 8a6.5 6.5 0 0110.535-5.096l-9.131 9.131A6.472 6.472 0 011.5 8zm2.465 5.096a6.5 6.5 0 009.131-9.131l-9.131 9.131zM8 0a8 8 0 100 16A8 8 0 008 0z"></path></svg>');
+}
+
+:root [name='customCSS'],
+:root [name='personalToken'] {
 	font-family: SFMono-Regular, Consolas, 'Liberation Mono', Menlo, Courier, monospace;
 	font-size: 11px;
 	line-height: 1.5;
-	resize: vertical;
-	-moz-tab-size: 4 !important;
-	tab-size: 4 !important;
-}
-
-input[type='checkbox'] {
-	vertical-align: -0.16em;
 }
 
 [name='personalToken'] {
 	width: 20em !important; /* https://github.com/sindresorhus/refined-github/issues/1374#issuecomment-397906701 */
+	display: inline-block !important;
 }
 
-.small {
-	font-size: 0.9em;
+[name='personalToken']:invalid {
+	border-color: var(--github-red) !important;
 }
 
-:root hr {
-	margin-right: -17px;
-	margin-left: -17px;
-	border: none;
-	border-bottom: solid #d3d3d3 1px;
-}
-
-/* Increase spacing between sections */
-h2 ~ h2 {
-	margin-top: 2em;
-}
-
-.js-features .feature {
+.feature:not([hidden]) {
 	display: flex;
-	margin-top: 1em;
 }
 
-.js-features input {
+.js-features input[type='checkbox'] {
 	flex-shrink: 0;
-	margin-inline-end: 0.6em; /* Spacing for Chrome */
-	margin-top: 4px; /* Alignment for Chrome */
+}
+
+.js-features input[type='checkbox']:not(*:root) {
+	/* Selector for Chrome only http://browserhacks.com/#ch */
+	margin-inline-end: 0.6em;
+	margin-top: 2px;
 }
 
 .js-features :not(:checked) + .info .feature-name {
 	text-decoration: line-through;
 }
 
-.js-features :not(:checked) + .info .extended-options {
-	display: none;
-}
-
 .js-features .description {
-	opacity: 0.8;
+	opacity: 80%;
 }
 
 .js-features a {
 	font-size: 0.9em;
 }
 
+.js-features a:first-of-type {
+	margin-left: 0.6em;
+}
+
 .js-features .info {
 	flex-grow: 1;
 }
 
-.js-features .info p {
-	margin-top: 0.25em;
-	margin-bottom: 0.125em;
+.js-features kbd {
+	display: inline-block;
+	padding: 3px 5px;
+	font-size: 0.8em;
+	line-height: 10px;
+	color: #444d56;
+	vertical-align: middle;
+	background-color: #fafbfc;
+	border: 1px solid #d1d5da;
+	border-radius: 6px;
+	box-shadow: inset 0 -1px 0 #d1d5da;
 }
 
-.feature-name + a {
-	margin-left: 0.6em;
+.feature-new .feature-name::after {
+	display: inline-block; /* Avoids the strikethrough on disabled features */
+	content: 'New';
+	font-size: 1em;
+	border: 1px solid;
+	border-radius: 0.2em;
+	padding: 0 0.3em;
+	margin-left: 0.8em;
+	text-transform: uppercase;
+	color: var(--github-red);
 }
 
 .sr-only {
 	display: none;
 }
 
-/* Firefox only */
-.only-firefox {
-	display: none;
+#debugging {
+	--background:
+		repeating-linear-gradient(
+			45deg,
+			var(--github-red),
+			var(--github-red) 7px,
+			transparent 7px,
+			transparent 14px
+		) no-repeat;
+	position: relative;
+	padding: 1em 0;
+	margin-bottom: 1em;
+	background:
+		var(--background) top / 100% 3px,
+		var(--background) bottom / 100% 3px;
 }
 
-@-moz-document url-prefix('') {
-	:root {
-		background: none !important;
-	}
-
-	:root h2 {
-		font-weight: normal;
-	}
-
-	:root hr {
-		margin-right: 0;
-	}
-
-	body > :not(hr) {
-		margin-left: 6px;
-		margin-right: 6px;
-	}
-
-	input[type='checkbox'] {
-		vertical-align: -41%;
-	}
-
-	.no-firefox {
-		display: none;
-	}
-
-	.only-firefox {
-		display: block;
-	}
+#debugging p:last-child {
+	margin-bottom: 0;
 }

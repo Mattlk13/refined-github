@@ -1,78 +1,148 @@
 import React from 'dom-chef';
-import select from 'select-dom';
-import elementReady from 'element-ready';
 import cache from 'webext-storage-cache';
-import features from '../libs/features';
-import * as icons from '../libs/icons';
-import {getRepoURL} from '../libs/utils';
-import {isRepoRoot, isReleasesOrTags} from '../libs/page-detect';
+import select from 'select-dom';
+import {TagIcon} from '@primer/octicons-react';
+import elementReady from 'element-ready';
+import * as pageDetect from 'github-url-detection';
 
-const repoUrl = getRepoURL();
-const repoKey = `releases-count:${repoUrl}`;
+import features from '.';
+import * as api from '../github-helpers/api';
+import looseParseInt from '../helpers/loose-parse-int';
+import {appendBefore} from '../helpers/dom-utils';
+import {createDropdownItem} from './more-dropdown';
+import {buildRepoURL, getRepo} from '../github-helpers';
 
-let cached: Promise<number | undefined>;
+const getCacheKey = (): string => `releases-count:${getRepo()!.nameWithOwner}`;
 
-async function updateReleasesCount(): Promise<number | undefined> {
-	if (isRepoRoot()) {
-		const releasesCountEl = select('.numbers-summary a[href$="/releases"] .num');
-		const releasesCount = Number(releasesCountEl ? releasesCountEl.textContent!.replace(/,/g, '') : 0);
-		cache.set(repoKey, releasesCount, 3);
-		return releasesCount;
+function parseCountFromDom(): number {
+	const releasesCountElement = select('.numbers-summary a[href$="/releases"] .num');
+	if (releasesCountElement) {
+		return looseParseInt(releasesCountElement);
 	}
 
-	return cached;
+	// In "Repository refresh" layout, look for the releases link in the sidebar
+	const moreReleasesCountElement = select('[href$="/tags"] strong');
+	if (moreReleasesCountElement) {
+		return looseParseInt(moreReleasesCountElement);
+	}
+
+	return 0;
 }
 
+async function fetchFromApi(): Promise<number> {
+	const {repository} = await api.v4(`
+		repository() {
+			refs(refPrefix: "refs/tags/") {
+				totalCount
+			}
+		}
+	`);
+
+	return repository.refs.totalCount;
+}
+
+const getReleaseCount = cache.function(async () => pageDetect.isRepoRoot() ? parseCountFromDom() : fetchFromApi(), {
+	maxAge: {hours: 1},
+	staleWhileRevalidate: {days: 3},
+	cacheKey: getCacheKey
+});
+
 async function init(): Promise<false | void> {
-	await elementReady('.pagehead + *'); // Wait for the tab bar to be loaded
-	const count = await updateReleasesCount();
+	// Always prefer the information in the DOM
+	if (pageDetect.isRepoRoot()) {
+		await cache.delete(getCacheKey());
+	}
+
+	const count = await getReleaseCount();
 	if (count === 0) {
 		return false;
 	}
 
-	const releasesTab = (
-		<a href={`/${repoUrl}/releases`} className="reponav-item" data-hotkey="g r">
-			{icons.tag()}
-			<span> Releases </span>
-			{count === undefined ? '' : <span className="Counter">{count}</span>}
-		</a>
-	);
-	select('.reponav-dropdown')!.before(releasesTab);
+	// Wait for the tab bar to be loaded
+	await elementReady([
+		'.pagehead', // Pre "Repository refresh" layout
+		'.UnderlineNav-body'
+	].join());
 
-	if (isReleasesOrTags()) {
-		const selected = select('.reponav-item.selected');
-		if (selected) {
-			selected.classList.remove('js-selected-navigation-item', 'selected');
+	const repoNavigationBar = select('.js-responsive-underlinenav');
+	if (repoNavigationBar) {
+		// "Repository refresh" layout
+		const releasesTab = (
+			<a
+				href={buildRepoURL('releases')}
+				className="js-selected-navigation-item UnderlineNav-item hx_underlinenav-item no-wrap js-responsive-underlinenav-item"
+				data-hotkey="g r"
+				data-selected-links="repo_releases"
+				data-tab-item="rgh-releases-item"
+			>
+				<TagIcon className="UnderlineNav-octicon"/>
+				<span data-content="Releases">Releases</span>
+				{count && <span className="Counter">{count}</span>}
+			</a>
+		);
+
+		select(':scope > ul', repoNavigationBar)!.append(
+			<li className="d-flex">
+				{releasesTab}
+			</li>
+		);
+
+		// This re-triggers the overflow listener forcing it to also hide this tab if necessary #3347
+		repoNavigationBar.replaceWith(repoNavigationBar);
+
+		// Update "selected" tab mark
+		if (pageDetect.isReleasesOrTags()) {
+			const selected = select('.UnderlineNav-item.selected');
+			if (selected) {
+				selected.classList.remove('selected');
+				selected.removeAttribute('aria-current');
+			}
+
+			releasesTab.classList.add('selected');
+			releasesTab.setAttribute('aria-current', 'page');
 		}
 
+		appendBefore(
+			select('.js-responsive-underlinenav .dropdown-menu ul')!,
+			'.dropdown-divider', // Won't exist if `more-dropdown` is disabled
+			createDropdownItem('Releases', buildRepoURL('releases'), {
+				'data-menu-item': 'rgh-releases-item'
+			})
+		);
+
+		return;
+	}
+
+	const releasesTab = (
+		<a href={buildRepoURL('releases')} className="reponav-item" data-hotkey="g r">
+			<TagIcon/>
+			<span> Releases </span>
+			{count && <span className="Counter">{count}</span>}
+		</a>
+	);
+
+	appendBefore(
+		// GHE doesn't have `.reponav > ul`
+		select('.reponav > ul') ?? select('.reponav')!,
+		'.reponav-dropdown, [data-selected-links^="repo_settings"]',
+		releasesTab
+	);
+
+	// Update "selected" tab mark
+	if (pageDetect.isReleasesOrTags()) {
+		select('.reponav-item.selected')?.classList.remove('js-selected-navigation-item', 'selected');
 		releasesTab.classList.add('js-selected-navigation-item', 'selected');
-		releasesTab.setAttribute('data-selected-links', 'repo_releases'); // Required for ajaxLoad
+		releasesTab.dataset.selectedLinks = 'repo_releases'; // Required for ajaxLoad
 	}
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Adds a `Releases` tab and a keyboard shortcut: `g` `r`.',
-	screenshot: 'https://cloud.githubusercontent.com/assets/170270/13136797/16d3f0ea-d64f-11e5-8a45-d771c903038f.png',
-	include: [
-		features.isRepo
-	],
-	load: features.onAjaxedPages,
+void features.add(__filebasename, {
 	shortcuts: {
 		'g r': 'Go to Releases'
 	},
-	init
-});
-
-features.add({
-	id: __featureName__,
-	description: false,
-	screenshot: false,
 	include: [
-		features.isRepo
+		pageDetect.isRepo
 	],
-	init() {
-		// Get as soon as possible, to have it ready before the first paint
-		cached = cache.get<number>(repoKey);
-	}
+	awaitDomReady: false,
+	init
 });

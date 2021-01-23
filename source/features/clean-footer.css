@@ -3,7 +3,7 @@ body > .footer {
 }
 
 body > .footer:not(:hover) {
-	opacity: 0.3;
+	opacity: 30%;
 }
 
 body > .footer > div > ul:first-of-type li:first-of-type { /* The `© 2017 GitHub, Inc.` text */
@@ -11,9 +11,10 @@ body > .footer > div > ul:first-of-type li:first-of-type { /* The `© 2017 GitHu
 }
 
 .footer-octicon {
-	display: none;
+	display: none !important;
 }
 
-body > .footer li a {
+body > .footer li a,
+body > .footer li .btn-link {
 	color: #666;
 }

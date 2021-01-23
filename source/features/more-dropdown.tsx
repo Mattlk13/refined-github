@@ -2,68 +2,111 @@ import './more-dropdown.css';
 import React from 'dom-chef';
 import select from 'select-dom';
 import elementReady from 'element-ready';
-import features from '../libs/features';
-import * as icons from '../libs/icons';
-import {getRepoURL, getRef} from '../libs/utils';
-import {isEnterprise} from '../libs/page-detect';
-import {appendBefore} from '../libs/dom-utils';
+import * as pageDetect from 'github-url-detection';
+import {DiffIcon, GitBranchIcon, HistoryIcon, PackageIcon} from '@primer/octicons-react';
 
-const repoUrl = getRepoURL();
+import features from '.';
+import {appendBefore} from '../helpers/dom-utils';
+import getDefaultBranch from '../github-helpers/get-default-branch';
+import {buildRepoURL, getCurrentBranch} from '../github-helpers';
 
 function createDropdown(): void {
 	// Markup copied from native GHE dropdown
-	appendBefore('.reponav', '[href$="settings"]',
-		<div className="reponav-dropdown js-menu-container">
-			<button type="button" className="btn-link reponav-item js-menu-target" aria-expanded="false" aria-haspopup="true">
+	appendBefore(
+		// GHE doesn't have `reponav > ul`
+		select('.reponav > ul') ?? select('.reponav')!,
+		'[data-selected-links^="repo_settings"]',
+		<details className="reponav-dropdown details-overlay details-reset">
+			<summary className="btn-link reponav-item" aria-haspopup="menu">
 				{'More '}
 				<span className="dropdown-caret"/>
-			</button>
-			<div className="dropdown-menu-content js-menu-content">
-				<div className="dropdown-menu dropdown-menu-se"/>
-			</div>
-		</div>
+			</summary>
+			<details-menu className="dropdown-menu dropdown-menu-se"/>
+		</details>
 	);
 }
 
+/* eslint-disable-next-line import/prefer-default-export */
+export function createDropdownItem(label: string, url: string, attributes?: Record<string, string>): Element {
+	return (
+		<li {...attributes}>
+			<a role="menuitem" className="dropdown-item" href={url}>
+				{label}
+			</a>
+		</li>
+	);
+}
+
+function onlyShowInDropdown(id: string): void {
+	select(`[data-tab-item$="${id}"]`)!.parentElement!.remove();
+	const menuItem = select(`[data-menu-item$="${id}"]`)!;
+	menuItem.removeAttribute('data-menu-item');
+	menuItem.hidden = false;
+
+	// The item has to be moved somewhere else because the overflow nav is order-dependent
+	select('.js-responsive-underlinenav-overflow ul')!.append(menuItem);
+}
+
 async function init(): Promise<void> {
-	await elementReady('.pagehead + *'); // Wait for the tab bar to be loaded
+	// Wait for the tab bar to be loaded
+	await elementReady([
+		'.pagehead', // Pre "Repository refresh" layout
+		'.UnderlineNav-body'
+	].join());
+
+	const reference = getCurrentBranch() ?? await getDefaultBranch();
+	const compareUrl = buildRepoURL('compare', reference);
+	const commitsUrl = buildRepoURL('commits', reference);
+	const branchesUrl = buildRepoURL('branches');
+	const dependenciesUrl = buildRepoURL('network/dependencies');
+
+	const nav = select('.js-responsive-underlinenav .UnderlineNav-body');
+	if (nav) {
+		// "Repository refresh" layout
+		nav.parentElement!.classList.add('rgh-has-more-dropdown');
+		select('.js-responsive-underlinenav-overflow ul')!.append(
+			<li className="dropdown-divider" role="separator"/>,
+			createDropdownItem('Compare', compareUrl),
+			pageDetect.isEnterprise() ? '' : createDropdownItem('Dependencies', dependenciesUrl),
+			createDropdownItem('Commits', commitsUrl),
+			createDropdownItem('Branches', branchesUrl)
+		);
+
+		onlyShowInDropdown('security-tab');
+		onlyShowInDropdown('insights-tab');
+		return;
+	}
+
+	// Pre "Repository refresh" layout
 	if (!select.exists('.reponav-dropdown')) {
 		createDropdown();
 	}
 
-	let compareUrl = `/${repoUrl}/compare`;
-	let commitsUrl = `/${repoUrl}/commits`;
-	const ref = getRef();
-	if (ref) {
-		compareUrl += `/${ref}`;
-		commitsUrl += `/${ref}`;
-	}
-
 	const menu = select('.reponav-dropdown .dropdown-menu')!;
-
 	menu.append(
 		<a href={compareUrl} className="rgh-reponav-more dropdown-item">
-			{icons.darkCompare()} Compare
+			<DiffIcon/> Compare
 		</a>,
 
-		isEnterprise() ? '' :
-			<a href={`/${repoUrl}/network/dependencies`} className="rgh-reponav-more dropdown-item">
-				{icons.dependency()} Dependencies
-			</a>,
+		pageDetect.isEnterprise() ? '' : (
+			<a href={dependenciesUrl} className="rgh-reponav-more dropdown-item">
+				<PackageIcon/> Dependencies
+			</a>
+		),
 
 		<a href={commitsUrl} className="rgh-reponav-more dropdown-item">
-			{icons.history()} Commits
+			<HistoryIcon/> Commits
 		</a>,
 
-		<a href={`/${repoUrl}/branches`} className="rgh-reponav-more dropdown-item">
-			{icons.branch()} Branches
-		</a>,
+		<a href={branchesUrl} className="rgh-reponav-more dropdown-item">
+			<GitBranchIcon/> Branches
+		</a>
 	);
 
 	// Selector only affects desktop navigation
-	for (const tab of select.all<HTMLAnchorElement>(`
-		.hx_reponav [data-selected-links~="pulse"],
-		.hx_reponav [data-selected-links~="security"]
+	for (const tab of select.all(`
+		.hx_reponav a[data-selected-links~="pulse"],
+		.hx_reponav a[data-selected-links~="security"]
 	`)) {
 		tab.remove();
 		menu.append(
@@ -74,13 +117,10 @@ async function init(): Promise<void> {
 	}
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Adds links to `Commits`, `Branches`, `Dependencies`, and `Compare` in a new `More` dropdown.',
-	screenshot: 'https://user-images.githubusercontent.com/1402241/55089736-d94f5300-50e8-11e9-9095-329ac74c1e9f.png',
+void features.add(__filebasename, {
 	include: [
-		features.isRepo
+		pageDetect.isRepo
 	],
-	load: features.onAjaxedPages,
+	awaitDomReady: false,
 	init
 });

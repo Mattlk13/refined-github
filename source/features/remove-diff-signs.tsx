@@ -1,13 +1,6 @@
 import './remove-diff-signs.css';
-import features from '../libs/features';
+import * as pageDetect from 'github-url-detection';
 
-function init(): void {
-	document.body.classList.add('rgh-remove-diff-signs');
-}
+import features from '.';
 
-features.add({
-	id: __featureName__,
-	description: 'Hides diff signs (+-) since diffs are color coded already.',
-	screenshot: 'https://user-images.githubusercontent.com/1402241/54807718-149cec80-4cb9-11e9-869c-e265863211e3.png',
-	init
-});
+void features.addCssFeature(__filebasename, [pageDetect.hasCode]);

@@ -1,56 +1,67 @@
 import React from 'dom-chef';
 import select from 'select-dom';
-import * as icons from '../libs/icons';
-import features from '../libs/features';
+import * as pageDetect from 'github-url-detection';
+import {BookIcon, CheckIcon, DiffIcon} from '@primer/octicons-react';
+
+import features from '.';
 
 function createDiffStyleToggle(): DocumentFragment {
-	const params = new URLSearchParams(location.search);
+	const parameters = new URLSearchParams(location.search);
 	const isUnified = select.exists([
 		'[value="unified"][checked]', // Form in PR
 		'.table-of-contents .selected[href$=unified]' // Link in single commit
-	].join());
+	]);
 
-	const makeLink = (type: string, icon: Element, selected: boolean): HTMLElement => {
-		params.set('diff', type);
-		return <a
-			className={`btn btn-sm BtnGroup-item tooltipped tooltipped-s ${selected ? 'selected' : ''}`}
-			aria-label={`Show ${type} diffs`}
-			href={`?${params}`}>
-			{icon}
-		</a>;
-	};
-
-	return <>
-		{makeLink('unified', icons.diff(), isUnified)}
-		{makeLink('split', icons.book(), !isUnified)}
-	</>;
-}
-
-function createWhitespaceButton(): HTMLElement {
-	const searchParams = new URLSearchParams(location.search);
-	const isHidingWhitespace = searchParams.get('w') === '1';
-
-	if (isHidingWhitespace) {
-		searchParams.delete('w');
-	} else {
-		searchParams.set('w', '1');
+	function makeLink(type: string, icon: Element, selected: boolean): HTMLElement {
+		parameters.set('diff', type);
+		return (
+			<a
+				className={`btn btn-sm BtnGroup-item tooltipped tooltipped-s ${selected ? 'selected' : ''}`}
+				aria-label={`Show ${type} diffs`}
+				href={`?${String(parameters)}`}
+			>
+				{icon}
+			</a>
+		);
 	}
 
 	return (
-		<a href={`?${searchParams}`}
+		<>
+			{makeLink('unified', <DiffIcon/>, isUnified)}
+			{makeLink('split', <BookIcon/>, !isUnified)}
+		</>
+	);
+}
+
+function createWhitespaceButton(): HTMLElement {
+	const searchParameters = new URLSearchParams(location.search);
+	const isHidingWhitespace = searchParameters.get('w') === '1';
+
+	if (isHidingWhitespace) {
+		searchParameters.delete('w');
+	} else {
+		searchParameters.set('w', '1');
+	}
+
+	return (
+		<a
+			href={`?${String(searchParameters)}`}
 			data-hotkey="d w"
 			className={`btn btn-sm btn-outline tooltipped tooltipped-s ${isHidingWhitespace ? 'bg-gray-light text-gray-light' : ''}`}
-			aria-label={`${isHidingWhitespace ? 'Show' : 'Hide'} whitespace in diffs`}>
-			{isHidingWhitespace ? icons.check() : false} No Whitespace
+			aria-label={`${isHidingWhitespace ? 'Show' : 'Hide'} whitespace in diffs`}
+		>
+			{isHidingWhitespace && <CheckIcon/>} No Whitespace
 		</a>
 	);
 }
 
 function wrap(...elements: Node[]): DocumentFragment {
-	if (features.isSingleCommit()) {
-		return <div className="float-right">
-			{...elements.map(element => <div className="ml-3 BtnGroup">{element}</div>)}
-		</div>;
+	if (pageDetect.isSingleCommit() || pageDetect.isCompare()) {
+		return (
+			<div className="float-right">
+				{elements.map(element => <div className="ml-3 BtnGroup">{element}</div>)}
+			</div>
+		);
 	}
 
 	return <>{elements.map(element => <div className="diffbar-item">{element}</div>)}</>;
@@ -60,7 +71,7 @@ function init(): false | void {
 	const container = select([
 		'#toc', // In single commit view
 		'.pr-review-tools' // In review view
-	].join(','));
+	]);
 	if (!container) {
 		return false;
 	}
@@ -80,7 +91,8 @@ function init(): false | void {
 	}
 
 	// Remove previous options UI
-	const singleCommitUI = select('[data-ga-load="Diff, view, Viewed Split Diff"]');
+	const singleCommitUI = select('[data-ga-load^="Diff, view"]');
+
 	if (singleCommitUI) {
 		singleCommitUI.remove();
 		return;
@@ -95,15 +107,12 @@ function init(): false | void {
 	}
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Adds one-click buttons to change diff style and to ignore the whitespace and a keyboard shortcut to ignore the whitespace: `d` `w`.',
-	screenshot: 'https://user-images.githubusercontent.com/1402241/54178764-d1c96080-44d1-11e9-889c-734ffd2a602d.png',
+void features.add(__filebasename, {
 	include: [
-		features.isPRFiles,
-		features.isCommit
+		// Disabled because of #2291 // pageDetect.isPRFiles
+		pageDetect.isCommit,
+		pageDetect.isCompare
 	],
-	load: features.onAjaxedPages,
 	shortcuts: {
 		'd w': 'Show/hide whitespaces in diffs'
 	},

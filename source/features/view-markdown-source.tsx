@@ -1,25 +1,42 @@
 import './view-markdown-source.css';
 import React from 'dom-chef';
+import domify from 'doma';
 import select from 'select-dom';
+import onetime from 'onetime';
 import delegate from 'delegate-it';
-import features from '../libs/features';
-import fetchDom from '../libs/fetch-dom';
-import * as icons from '../libs/icons';
-import {blurAccessibly} from './comment-fields-keyboard-shortcuts';
+import * as pageDetect from 'github-url-detection';
+import {CodeIcon, FileIcon} from '@primer/octicons-react';
 
-const btnBodyMap = new WeakMap<Element, Element | Promise<Element>>();
+import features from '.';
+import fetchDom from '../helpers/fetch-dom';
+import GitHubURL from '../github-helpers/github-url';
+import {buildRepoURL} from '../github-helpers';
+
+const lineActions = onetime(async () => {
+	// Avoid having to create the entire 60 lines of JSX. The URL is hardcoded to a file we know the DOM exists.
+	const randomKnownFile = 'https://github.com/sindresorhus/refined-github/blob/b1229bbaeb8cf071f0711bc2ed1b40dd96cd7a05/.editorconfig';
+
+	// Fetch background.js due to CORB policies
+	const html = await browser.runtime.sendMessage({fetch: randomKnownFile});
+	const blobToolbar = domify(html).querySelector('.BlobToolbar')!;
+	select('a#js-view-git-blame', blobToolbar)!.href = new GitHubURL(location.href).assign({route: 'blame'}).href;
+	select('a#js-new-issue', blobToolbar)!.href = buildRepoURL('issues/new');
+	return blobToolbar;
+});
+
+const buttonBodyMap = new WeakMap<Element, Element | Promise<Element>>();
 
 async function fetchSource(): Promise<Element> {
-	const path = location.pathname.replace(/([^/]+\/[^/]+\/)(blob)/, '$1blame');
+	const path = location.pathname.replace(/((?:[^/]+\/){2})(blob)/, '$1blame');
 	const dom = await fetchDom(path, '.blob-wrapper');
-	dom.classList.add('rgh-markdown-source');
-	return dom;
+	dom!.classList.add('rgh-markdown-source');
+	return dom!;
 }
 
 // Hide tooltip after click, it’s shown on :focus
 function blurButton(button: HTMLElement): void {
 	if (button === document.activeElement) {
-		blurAccessibly(button);
+		button.blur();
 	}
 }
 
@@ -33,16 +50,16 @@ This acts as an auto-discarded cache without globals, timers, etc.
 It should also work clicks on buttons sooner than the page loads.
 */
 async function showSource(): Promise<void> {
-	const sourceButton = select<HTMLButtonElement>('.rgh-md-source')!;
-	const renderedButton = select<HTMLButtonElement>('.rgh-md-rendered')!;
+	const sourceButton = select('button.rgh-md-source')!;
+	const renderedButton = select('button.rgh-md-rendered')!;
 
 	sourceButton.disabled = true;
 
-	const source = btnBodyMap.get(sourceButton) || fetchSource();
-	const rendered = btnBodyMap.get(renderedButton) as Element || select('.blob.instapaper_body')!;
+	const source = buttonBodyMap.get(sourceButton) ?? fetchSource();
+	const rendered = await buttonBodyMap.get(renderedButton) ?? select('.blob.js-code-block-container')!;
 
-	btnBodyMap.set(sourceButton, source);
-	btnBodyMap.set(renderedButton, rendered);
+	buttonBodyMap.set(sourceButton, source);
+	buttonBodyMap.set(renderedButton, rendered);
 
 	rendered.replaceWith(await source);
 
@@ -51,42 +68,44 @@ async function showSource(): Promise<void> {
 	sourceButton.classList.add('selected');
 	renderedButton.classList.remove('selected');
 	blurButton(sourceButton);
-
 	dispatchEvent(sourceButton, 'rgh:view-markdown-source');
+
+	(await source).before(await lineActions());
 }
 
 async function showRendered(): Promise<void> {
-	const sourceButton = select<HTMLButtonElement>('.rgh-md-source')!;
-	const renderedButton = select<HTMLButtonElement>('.rgh-md-rendered')!;
+	const sourceButton = select('button.rgh-md-source')!;
+	const renderedButton = select('button.rgh-md-rendered')!;
 
 	renderedButton.disabled = true;
 
-	(await btnBodyMap.get(sourceButton))!.replaceWith(btnBodyMap.get(renderedButton) as Element);
+	(await buttonBodyMap.get(sourceButton))!.replaceWith(await buttonBodyMap.get(renderedButton)!);
 
 	renderedButton.disabled = false;
 
 	sourceButton.classList.remove('selected');
 	renderedButton.classList.add('selected');
 	blurButton(renderedButton);
-
 	dispatchEvent(sourceButton, 'rgh:view-markdown-rendered');
+
+	(await lineActions()).remove();
 }
 
-async function init(): Promise<false | void> {
-	if (!select.exists('.blob.instapaper_body')) {
-		return false;
-	}
+async function init(): Promise<void> {
+	delegate(document, '.rgh-md-source:not(.selected)', 'click', showSource);
+	delegate(document, '.rgh-md-rendered:not(.selected)', 'click', showRendered);
 
-	delegate('.rgh-md-source:not(.selected)', 'click', showSource);
-	delegate('.rgh-md-rendered:not(.selected)', 'click', showRendered);
-
-	select('.repository-content .Box-header .d-flex')!.prepend(
+	const fileButtons =
+		select('.repository-content .Box-header.flex-md-items-center .d-flex') ??
+		// Pre "Repository refresh" layout
+		select('.repository-content .Box-header .d-flex')!;
+	fileButtons.prepend(
 		<div className="BtnGroup">
-			<button className="btn btn-sm BtnGroup-item tooltipped tooltipped tooltipped-n rgh-md-source" type="button" aria-label="Display the source blob">
-				{icons.code()}
+			<button className="btn btn-sm BtnGroup-item tooltipped tooltipped tooltipped-nw rgh-md-source" type="button" aria-label="Display the source blob">
+				<CodeIcon/>
 			</button>
-			<button className="btn btn-sm BtnGroup-item tooltipped tooltipped-n rgh-md-rendered selected" type="button" aria-label="Display the rendered blob">
-				{icons.file()}
+			<button className="btn btn-sm BtnGroup-item tooltipped tooltipped-nw rgh-md-rendered selected" type="button" aria-label="Display the rendered blob">
+				<FileIcon/>
 			</button>
 		</div>
 	);
@@ -103,13 +122,12 @@ async function init(): Promise<false | void> {
 	}
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Adds a button to view the source of Markdown files.',
-	screenshot: 'https://user-images.githubusercontent.com/1402241/54814836-7bc39c80-4ccb-11e9-8996-9ecf4f6036cb.png',
+void features.add(__filebasename, {
 	include: [
-		features.isSingleFile
+		pageDetect.isSingleFile
 	],
-	load: features.onAjaxedPages,
+	exclude: [
+		() => !select.exists('.blob .markdown-body')
+	],
 	init
 });

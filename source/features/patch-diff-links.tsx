@@ -1,13 +1,14 @@
 import './patch-diff-links.css';
 import React from 'dom-chef';
 import select from 'select-dom';
-import features from '../libs/features';
-import {isPRCommit} from '../libs/page-detect';
+import * as pageDetect from 'github-url-detection';
+
+import features from '.';
 
 function init(): void {
 	let commitUrl = location.pathname.replace(/\/$/, '');
 
-	if (isPRCommit()) {
+	if (pageDetect.isPRCommit()) {
 		commitUrl = commitUrl.replace(/\/pull\/\d+\/commits/, '/commit');
 	}
 
@@ -20,13 +21,12 @@ function init(): void {
 	);
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Adds links to `.patch` and `.diff` files in commits.',
-	screenshot: 'https://cloud.githubusercontent.com/assets/737065/13605562/22faa79e-e516-11e5-80db-2da6aa7965ac.png',
+void features.add(__filebasename, {
 	include: [
-		features.isCommit
+		pageDetect.isCommit
 	],
-	load: features.onAjaxedPages,
+	exclude: [
+		pageDetect.isPRCommit404
+	],
 	init
 });

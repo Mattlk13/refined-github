@@ -1,20 +1,26 @@
-import select from 'select-dom';
-import features from '../libs/features';
+import elementReady from 'element-ready';
+import * as pageDetect from 'github-url-detection';
 
-function init(): void {
-	const packagesLabel = select('.numbers-summary [href$="/packages"]');
-	if (packagesLabel && packagesLabel.textContent!.trim().startsWith('0')) {
-		packagesLabel.parentElement!.remove();
+import features from '.';
+import getTabCount from './remove-projects-tab';
+
+async function init(): Promise<void | false> {
+	const packagesTab = await elementReady('.UnderlineNav-item[href$="?tab=packages"]:not(.selected)');
+	if (!packagesTab || await getTabCount(packagesTab) > 0) {
+		return false;
 	}
+
+	packagesTab.closest('.BorderGrid-row, .UnderlineNav-item')!.remove();
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Hides the `Packages` tab in repositories if it’s empty.',
-	screenshot: 'https://user-images.githubusercontent.com/35382021/62426530-688ef780-b6d5-11e9-93f2-515110aed1eb.jpg',
+void features.add(__filebasename, {
 	include: [
-		features.isRepoRoot
+		pageDetect.isUserProfile
 	],
-	load: features.onAjaxedPages,
+	exclude: [
+		// Keep it visible on your own profile due to #3737
+		pageDetect.isOwnUserProfile
+	],
+	awaitDomReady: false,
 	init
 });

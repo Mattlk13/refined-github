@@ -1,11 +1,14 @@
 import React from 'dom-chef';
 import select from 'select-dom';
-import {wrap} from '../libs/dom-utils';
-import features from '../libs/features';
-import {getRepoPath, getRepoURL} from '../libs/utils';
+import * as pageDetect from 'github-url-detection';
+
+import {wrap} from '../helpers/dom-utils';
+import features from '.';
+import {buildRepoURL, getRepo} from '../github-helpers';
 
 function init(): void {
-	const references = getRepoPath()!
+	const references = getRepo()!
+		.path
 		.replace('compare/', '')
 		.split('...')
 		.reverse();
@@ -17,16 +20,12 @@ function init(): void {
 
 	const icon = select('.octicon-arrow-left')!;
 	icon.parentElement!.attributes['aria-label'].value += '.\nClick to swap.';
-	wrap(icon, <a href={`/${getRepoURL()}/compare/${references.join('...')}`}></a>);
+	wrap(icon, <a href={buildRepoURL('compare/' + references.join('...'))}/>);
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Adds link to swap branches in the branch compare view.',
-	screenshot: 'https://user-images.githubusercontent.com/857700/42854438-821096f2-8a01-11e8-8752-76f7563b5e18.png',
+void features.add(__filebasename, {
 	include: [
-		features.isCompare
+		pageDetect.isCompare
 	],
-	load: features.onAjaxedPages,
 	init
 });

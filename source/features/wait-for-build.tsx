@@ -2,31 +2,29 @@ import './wait-for-build.css';
 import React from 'dom-chef';
 import select from 'select-dom';
 import onetime from 'onetime';
-import delegate, {DelegateEvent} from 'delegate-it';
-import features from '../libs/features';
-import * as prCiStatus from '../libs/pr-ci-status';
-import * as icons from '../libs/icons';
-import onPrMergePanelOpen from '../libs/on-pr-merge-panel-open';
+import delegate from 'delegate-it';
+import {InfoIcon} from '@primer/octicons-react';
+import * as pageDetect from 'github-url-detection';
+
+import features from '.';
+import * as prCiStatus from '../github-helpers/pr-ci-status';
+import onPrMergePanelOpen from '../github-events/on-pr-merge-panel-open';
 
 let waiting: symbol | undefined;
 
 // Reuse the same checkbox to preserve its status
 const generateCheckbox = onetime(() => (
 	<label className="d-inline-block">
-		<input type="checkbox" name="rgh-pr-check-waiter" checked/>
+		<input checked type="checkbox" name="rgh-pr-check-waiter"/>
 		{' Wait for successful checks '}
-		<a className="discussion-item-help tooltipped tooltipped-n" target="_blank" href="https://github.com/sindresorhus/refined-github/pull/975" aria-label="This only works if you keep this tab open while waiting.">
-			{icons.info()}
+		<a className="discussion-item-help tooltipped tooltipped-n" target="_blank" rel="noopener noreferrer" href="https://github.com/sindresorhus/refined-github/pull/975" aria-label="This only works if you keep this tab open while waiting.">
+			<InfoIcon/>
 		</a>
 	</label>
 ));
 
-function canMerge(): boolean {
-	return select.exists('[data-details-container=".js-merge-pr"]:not(:disabled)');
-}
-
-function getCheckbox(): HTMLInputElement | null {
-	return select<HTMLInputElement>('[name="rgh-pr-check-waiter"]');
+function getCheckbox(): HTMLInputElement | undefined {
+	return select('input[name="rgh-pr-check-waiter"]');
 }
 
 // Only show the checkbox if there's a pending commit
@@ -34,22 +32,19 @@ function showCheckboxIfNecessary(): void {
 	const checkbox = getCheckbox();
 	const isNecessary = prCiStatus.get() === prCiStatus.PENDING;
 	if (!checkbox && isNecessary) {
-		const container = select('.commit-form-actions .select-menu');
-		if (container) {
-			container.append(generateCheckbox());
-		}
+		select('.js-merge-form .select-menu')?.append(generateCheckbox());
 	} else if (checkbox && !isNecessary) {
 		checkbox.parentElement!.remove();
 	}
 }
 
 function disableForm(disabled = true): void {
-	for (const field of select.all<HTMLInputElement>(`
-		[name="commit_message"],
-		[name="commit_title"],
-		[name="rgh-pr-check-waiter"],
-		.js-merge-commit-button
-		`)) {
+	for (const field of select.all(`
+		textarea[name="commit_message"],
+		input[name="commit_title"],
+		input[name="rgh-pr-check-waiter"],
+		button.js-merge-commit-button
+	`)) {
 		field.disabled = disabled;
 	}
 
@@ -59,9 +54,9 @@ function disableForm(disabled = true): void {
 	}
 }
 
-async function handleMergeConfirmation(event: DelegateEvent<Event, HTMLButtonElement>): Promise<void> {
+async function handleMergeConfirmation(event: delegate.Event<Event, HTMLButtonElement>): Promise<void> {
 	const checkbox = getCheckbox();
-	if (checkbox && checkbox.checked) {
+	if (checkbox?.checked) {
 		event.preventDefault();
 
 		disableForm();
@@ -80,23 +75,17 @@ async function handleMergeConfirmation(event: DelegateEvent<Event, HTMLButtonEle
 	}
 }
 
-function init(): false | void {
-	if (!canMerge()) {
-		return false;
-	}
-
+function init(): void {
 	// Watch for new commits and their statuses
 	prCiStatus.addEventListener(showCheckboxIfNecessary);
 
 	onPrMergePanelOpen(showCheckboxIfNecessary);
 
-	const container = select('.discussion-timeline-actions')!;
-
 	// One of the merge buttons has been clicked
-	delegate(container, '.js-merge-commit-button', 'click', handleMergeConfirmation);
+	delegate(document, '.js-merge-commit-button', 'click', handleMergeConfirmation);
 
 	// Cancel wait when the user presses the Cancel button
-	delegate(container, '.commit-form-actions button:not(.js-merge-commit-button)', 'click', () => {
+	delegate(document, '.commit-form-actions button:not(.js-merge-commit-button)', 'click', () => {
 		disableForm(false);
 	});
 
@@ -109,13 +98,13 @@ function init(): false | void {
 	});
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Adds the option to wait for checks when merging a PR.',
-	screenshot: 'https://user-images.githubusercontent.com/1402241/35192861-3f4a1bf6-fecc-11e7-8b9f-35ee019c6cdf.gif',
+void features.add(__filebasename, {
 	include: [
-		features.isPRConversation
+		pageDetect.isPRConversation
 	],
-	load: features.onAjaxedPages,
+	exclude: [
+		// The user cannot merge
+		() => !select.exists('[data-details-container=".js-merge-pr"]:not(:disabled)')
+	],
 	init
 });

@@ -1,8 +1,16 @@
 import React from 'dom-chef';
 import select from 'select-dom';
-import features from '../libs/features';
-import {getCleanPathname} from '../libs/utils';
-import getDefaultBranch from '../libs/get-default-branch';
+import onetime from 'onetime';
+import elementReady from 'element-ready';
+import * as pageDetect from 'github-url-detection';
+
+import features from '.';
+import getDefaultBranch from '../github-helpers/get-default-branch';
+import {getCleanPathname} from '../github-helpers';
+
+function getType(): string {
+	return location.pathname.split('/').pop()!.includes('.') ? 'file' : 'object';
+}
 
 async function is404(url: string): Promise<boolean> {
 	const {status} = await fetch(url, {method: 'head'});
@@ -39,7 +47,7 @@ async function addCommitHistoryLink(bar: Element): Promise<void> {
 
 	bar.after(
 		<p className="container mt-4 text-center">
-			See also the file’s {<a href={url}>commit history</a>}
+			See also the {getType()}’s <a href={url}>commit history</a>.
 		</p>
 	);
 }
@@ -53,7 +61,7 @@ async function addDefaultBranchLink(bar: Element): Promise<void> {
 	}
 
 	const defaultBranch = await getDefaultBranch();
-	if (!defaultBranch || branch === defaultBranch) {
+	if (branch === defaultBranch) {
 		return;
 	}
 
@@ -65,7 +73,7 @@ async function addDefaultBranchLink(bar: Element): Promise<void> {
 
 	bar.after(
 		<p className="container mt-4 text-center">
-			See also the file on the {<a href={url}>default branch</a>}
+			The {getType()} exists on the <a href={url}>default branch</a>.
 		</p>
 	);
 }
@@ -79,8 +87,8 @@ function init(): false | void {
 	const bar = <h2 className="container mt-4 text-center"/>;
 
 	for (const [i, part] of parts.entries()) {
-		if (i === 2 && part === 'tree') {
-			// `/tree/` is not a real part of the URL
+		if (i === 2 && ['tree', 'blob', 'edit'].includes(part)) {
+			// Exclude parts that don't exist as standalones
 			continue;
 		}
 
@@ -97,22 +105,42 @@ function init(): false | void {
 
 	// Check parts from right to left; skip the last part
 	for (let i = bar.children.length - 2; i >= 0; i--) {
-		checkAnchor(bar.children[i] as HTMLAnchorElement);
+		void checkAnchor(bar.children[i] as HTMLAnchorElement);
 	}
 
-	if (parts[2] === 'tree') {
-		addCommitHistoryLink(bar);
-		addDefaultBranchLink(bar);
+	if (['tree', 'blob'].includes(parts[2])) {
+		// Object might be 410 Gone
+		void addCommitHistoryLink(bar);
+	}
+
+	if (['tree', 'blob', 'edit'].includes(parts[2])) {
+		// File might not be available on the current branch
+		// GitHub already redirects /tree/ and /blob/ natively
+		void addDefaultBranchLink(bar);
 	}
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Adds possible related pages and alternatives on 404 pages.',
-	screenshot: 'https://user-images.githubusercontent.com/1402241/46402857-7bdada80-c733-11e8-91a1-856573078ff5.png',
+async function initPRCommit(): Promise<void | false> {
+	const commitUrl = location.href.replace(/pull\/\d+\/commits/, 'commit');
+	if (await is404(commitUrl)) {
+		return false;
+	}
+
+	const blankSlateParagraph = await elementReady('.blankslate p', {waitForChildren: false});
+	blankSlateParagraph!.after(
+		<p>You can also try to <a href={commitUrl}>view the detached standalone commit</a>.</p>
+	);
+}
+
+void features.add(__filebasename, {
 	include: [
-		features.is404
+		pageDetect.is404
 	],
-	load: features.onDomReady,
-	init
+	init: onetime(init)
+}, {
+	include: [
+		pageDetect.isPRCommit404
+	],
+	awaitDomReady: false,
+	init: onetime(initPRCommit)
 });

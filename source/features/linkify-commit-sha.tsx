@@ -1,22 +1,20 @@
 import React from 'dom-chef';
 import select from 'select-dom';
-import {wrap} from '../libs/dom-utils';
-import features from '../libs/features';
+import * as pageDetect from 'github-url-detection';
+
+import {wrap} from '../helpers/dom-utils';
+import features from '.';
 
 function init(): void {
-	const el = select('.sha.user-select-contain');
-	if (el) {
-		wrap(el, <a href={location.pathname.replace(/pull\/\d+\/commits/, 'commit')}/>);
+	const element = select('.sha.user-select-contain');
+	if (element) {
+		wrap(element, <a href={location.pathname.replace(/pull\/\d+\/commits/, 'commit')}/>);
 	}
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Adds link to non-PR commit when visiting a PR commit.',
-	screenshot: 'https://user-images.githubusercontent.com/101152/42968387-606b23f2-8ba3-11e8-8a4b-667bddc8d33c.png',
+void features.add(__filebasename, {
 	include: [
-		features.isPRCommit
+		pageDetect.isPRCommit
 	],
-	load: features.onAjaxedPages,
 	init
 });

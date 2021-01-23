@@ -1,39 +1,34 @@
 import React from 'dom-chef';
 import select from 'select-dom';
-import features from '../libs/features';
-import onPrFileLoad from '../libs/on-pr-file-load';
+import delegate from 'delegate-it';
+import * as pageDetect from 'github-url-detection';
 
-function createRawUrl(pathname: string): string {
-	const url = pathname.split('/');
-	url[3] = 'raw'; // Replaces 'blob'
-	return url.join('/');
-}
+import features from '.';
+import GitHubURL from '../github-helpers/github-url';
 
-function addRawButtons(): void {
-	const links = select.all<HTMLAnchorElement>('.js-file-header-dropdown [data-ga-click^="View file"]:not(.rgh-has-raw-file-link)');
-	for (const fileLink of links) {
-		fileLink.classList.add('rgh-has-raw-file-link');
-		fileLink.after(
-			<a href={createRawUrl(fileLink.pathname)} className="pl-5 dropdown-item btn-link" role="menuitem">
-				View raw
-			</a>
-		);
-	}
+function handleMenuOpening({delegateTarget: dropdown}: delegate.Event): void {
+	dropdown.classList.add('rgh-raw-file-link'); // Mark this as processed
+
+	const viewFile = select('a[data-ga-click^="View file"]', dropdown)!;
+	const {href} = new GitHubURL(viewFile.href).assign({route: 'raw'});
+
+	viewFile.after(
+		<a href={href} className="pl-5 dropdown-item btn-link" role="menuitem">
+			View raw
+		</a>
+	);
 }
 
 function init(): void {
-	addRawButtons();
-	onPrFileLoad(addRawButtons);
+	// `useCapture` required to be fired before GitHub's handlers
+	delegate(document, '.file-header .js-file-header-dropdown:not(.rgh-raw-file-link)', 'toggle', handleMenuOpening, true);
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Adds link to view the raw version of files in PRs and commits.',
-	screenshot: 'https://user-images.githubusercontent.com/1402241/56484988-b99f2500-6504-11e9-9748-c944e1070cc8.png',
+void features.add(__filebasename, {
 	include: [
-		features.isCommit,
-		features.isPRFiles
+		pageDetect.isCommit,
+		pageDetect.isPRFiles,
+		pageDetect.isCompare
 	],
-	load: features.onAjaxedPages,
 	init
 });

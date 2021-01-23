@@ -1,36 +1,50 @@
 import './profile-gists-link.css';
 import React from 'dom-chef';
-import select from 'select-dom';
-import * as api from '../libs/api';
-import features from '../libs/features';
-import {getCleanPathname} from '../libs/utils';
-import {isEnterprise} from '../libs/page-detect';
+import cache from 'webext-storage-cache';
+import elementReady from 'element-ready';
+import * as pageDetect from 'github-url-detection';
+import {CodeSquareIcon} from '@primer/octicons-react';
 
-async function init(): Promise<false | void> {
-	const container = select('body.page-profile .UnderlineNav-body');
+import features from '.';
+import * as api from '../github-helpers/api';
+import {getCleanPathname} from '../github-helpers';
 
-	if (!container) {
-		return false;
-	}
+const getGistCount = cache.function(async (username: string): Promise<number> => {
+	const {user} = await api.v4(`
+		user(login: "${username}") {
+			gists(first: 0) {
+				totalCount
+			}
+		}
+	`);
+	return user.gists.totalCount;
+}, {
+	maxAge: {days: 1},
+	staleWhileRevalidate: {days: 3},
+	cacheKey: ([username]) => 'gist-count:' + username
+});
 
+async function init(): Promise<void> {
 	const username = getCleanPathname();
-	const href = isEnterprise() ? `/gist/${username}` : `https://gist.github.com/${username}`;
-	const link = <a href={href} className="UnderlineNav-item" role="tab" aria-selected="false">Gists </a>;
-	container.append(link);
+	const href = pageDetect.isEnterprise() ? `/gist/${username}` : `https://gist.github.com/${username}`;
+	const link = (
+		<a href={href} className="UnderlineNav-item" role="tab" aria-selected="false">
+			<CodeSquareIcon className="UnderlineNav-octicon hide-sm"/> Gists
+		</a>
+	);
 
-	const userData = await api.v3(`users/${username}`);
-	if (userData.public_gists) {
-		link.append(<span className="Counter">{userData.public_gists}</span>);
+	(await elementReady('.UnderlineNav-body'))!.append(link);
+
+	const count = await getGistCount(username);
+	if (count > 0) {
+		link.append(<span className="Counter">{count}</span>);
 	}
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Adds a link to the user’s public gists.',
-	screenshot: 'https://user-images.githubusercontent.com/11544418/34268306-1c974fd2-e678-11e7-9e82-861dfe7add22.png',
+void features.add(__filebasename, {
 	include: [
-		features.isUserProfile
+		pageDetect.isUserProfile
 	],
-	load: features.onAjaxedPages,
+	awaitDomReady: false,
 	init
 });

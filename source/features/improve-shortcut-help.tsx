@@ -1,7 +1,9 @@
-import './improve-shortcut-help.css';
 import React from 'dom-chef';
 import select from 'select-dom';
-import features from '../libs/features';
+import onetime from 'onetime';
+
+import features from '.';
+import {isEditable} from '../helpers/dom-utils';
 
 function splitKeys(keys: string): DocumentFragment[] {
 	return keys.split(' ').map(key => <> <kbd>{key}</kbd></>);
@@ -15,7 +17,7 @@ function improveShortcutHelp(dialog: Element): void {
 			</div>
 
 			<ul>
-				{features.getShortcuts().map(({hotkey, description}) => (
+				{[...features.shortcutMap].map(([hotkey, description]) => (
 					<li className="Box-row d-flex flex-row">
 						<div className="flex-auto">{description}</div>
 						<div className="ml-2 no-wrap">
@@ -44,17 +46,22 @@ const observer = new MutationObserver(([{target}]) => {
 	}
 });
 
-function init(): void {
-	document.addEventListener('keypress', ({key}) => {
-		if (key === '?') {
-			observer.observe(select('.kb-shortcut-dialog')!, {childList: true});
-		}
-	});
+function observeShortcutModal({key, target}: KeyboardEvent): void {
+	if (key !== '?' || isEditable(target)) {
+		return;
+	}
+
+	const modal = select('body > details > details-dialog');
+	if (modal) {
+		observer.observe(modal, {childList: true});
+	}
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Show Refined GitHub’s keyboard shortcuts in the help modal (`?` hotkey)',
-	screenshot: 'https://user-images.githubusercontent.com/29176678/36999174-9f07d33e-20bf-11e8-83e3-b3a9908a4b5f.png',
-	init
+function init(): void {
+	document.addEventListener('keypress', observeShortcutModal);
+}
+
+void features.add(__filebasename, {
+	awaitDomReady: false,
+	init: onetime(init)
 });

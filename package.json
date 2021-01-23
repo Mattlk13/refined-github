@@ -1,154 +1,133 @@
 {
 	"private": true,
 	"scripts": {
-		"lint": "run-p --silent lint:*",
+		"ava": "rollup test/*.ts --plugin typescript --dir .built/test --chunkFileNames _.mjs --entryFileNames [name].mjs && ava",
+		"build": "run-p build:* --continue-on-error",
+		"build:typescript": "tsc --noEmit",
+		"build:webpack": "webpack --mode=production",
+		"fix": "run-p 'lint:* -- --fix'",
+		"lint": "run-p lint:* --continue-on-error",
+		"lint:css": "stylelint 'source/**/*.css'",
 		"lint:js": "xo",
-		"lint:css": "stylelint source/**/*.css",
-		"lint-fix": "run-p --silent 'lint:* -- --fix'",
-		"test": "run-p --silent test:js lint:* build",
-		"test:js": "ava",
-		"build": "webpack --mode=production",
-		"watch": "webpack --mode=development --watch",
-		"watch:firefox": "web-ext run --source-dir=distribution",
-		"prerelease:version": "dot-json distribution/manifest.json version $VER",
-		"prerelease:source-url": "echo https://github.com/sindresorhus/refined-github/tree/\"${TRAVIS_COMMIT:-$VER}\" > distribution/SOURCE_URL",
-		"release:amo": "cd distribution && web-ext-submit",
-		"release:cws": "cd distribution && webstore upload --auto-publish",
-		"release": "VER=$(daily-version) npm-run-all build prerelease:* release:* create-git-tag",
-		"create-git-tag": "git tag $VER -m $VER && git push origin $VER"
-	},
-	"dependencies": {
-		"content-scripts-register-polyfill": "^1.0.0",
-		"copy-text-to-clipboard": "^2.0.0",
-		"debounce-fn": "^3.0.1",
-		"delegate-it": "^1.1.0-7",
-		"dom-chef": "^3.6.1",
-		"dom-loaded": "^1.1.0",
-		"doma": "^1.0.3",
-		"element-ready": "^4.1.0",
-		"fit-textarea": "^1.1.0",
-		"github-reserved-names": "^1.1.5",
-		"indent-textarea": "^1.0.4",
-		"insert-text-textarea": "^1.0.3",
-		"intervalometer": "^1.0.5",
-		"linkify-issues": "^1.3.0",
-		"linkify-urls": "^2.2.0",
-		"mem": "^5.1.1",
-		"onetime": "^5.0.0",
-		"p-filter": "^2.1.0",
-		"select-dom": "^5.1.0",
-		"shorten-repo-url": "^1.5.2",
-		"tiny-version-compare": "^1.0.0",
-		"webext-additional-permissions": "^0.1.0",
-		"webext-detect-page": "^1.0.2",
-		"webext-domain-permission-toggle": "^1.0.0",
-		"webext-dynamic-content-scripts": "^6.0.3",
-		"webext-options-sync": "^1.0.0-8",
-		"webext-permissions-events-polyfill": "^1.0.1",
-		"webext-storage-cache": "^1.0.2",
-		"webextension-polyfill": "^0.4.0",
-		"zip-text-nodes": "^1.0.0-0"
-	},
-	"devDependencies": {
-		"@sindresorhus/tsconfig": "^0.4.0",
-		"@types/chrome": "0.0.86",
-		"@types/codemirror": "0.0.76",
-		"@types/copy-webpack-plugin": "^5.0.0",
-		"@types/firefox-webext-browser": "^67.0.2",
-		"@types/jsdom": "^12.2.4",
-		"@types/mini-css-extract-plugin": "^0.2.1",
-		"@types/react": "^16.8.23",
-		"@types/terser-webpack-plugin": "^1.2.1",
-		"@typescript-eslint/eslint-plugin": "^1.11.0",
-		"@typescript-eslint/parser": "^1.11.0",
-		"ava": "^2.2.0",
-		"chrome-webstore-upload-cli": "^1.2.0",
-		"copy-webpack-plugin": "^5.0.3",
-		"css-loader": "^3.0.0",
-		"daily-version": "^0.12.0",
-		"dot-json": "^1.0.4",
-		"eslint": "^6.0.1",
-		"eslint-config-xo-typescript": "^0.15.0",
-		"fork-ts-checker-webpack-plugin": "^1.3.7",
-		"jsdom": "^15.1.1",
-		"mini-css-extract-plugin": "^0.7.0",
-		"npm-run-all": "^4.1.3",
-		"size-plugin": "^1.2.0",
-		"string-replace-loader": "^2.2.0",
-		"stylelint": "^10.1.0",
-		"stylelint-config-xo": "^0.15.0",
-		"terser-webpack-plugin": "^1.3.0",
-		"ts-loader": "^6.0.4",
-		"ts-node": "^8.3.0",
-		"type-fest": "^0.6.0",
-		"typescript": "^3.5.3",
-		"web-ext": "^3.1.1",
-		"web-ext-submit": "^3.1.1",
-		"webpack": "^4.35.3",
-		"webpack-cli": "^3.3.5",
-		"xo": "^0.24.0"
-	},
-	"xo": {
-		"envs": [
-			"browser"
-		],
-		"extensions": [
-			"ts",
-			"tsx"
-		],
-		"globals": [
-			"browser",
-			"__featuresList__",
-			"__featuresInfo__",
-			"__featureName__"
-		],
-		"rules": {
-			"no-alert": "off",
-			"import/no-unassigned-import": "off",
-			"import/no-unresolved": "warn"
-		},
-		"overrides": [
-			{
-				"files": "**/*.+(ts|tsx)",
-				"extends": "xo-typescript",
-				"rules": {
-					"@typescript-eslint/no-unused-vars": [
-						"error",
-						{
-							"varsIgnorePattern": "^React$"
-						}
-					]
-				}
-			}
-		]
-	},
-	"ava": {
-		"files": [
-			"test/*.ts"
-		],
-		"babel": false,
-		"compileEnhancements": false,
-		"extensions": [
-			"ts"
-		],
-		"require": [
-			"ts-node/register"
-		]
+		"pack:safari": "xcodebuild -project 'safari/Refined GitHub.xcodeproj'",
+		"release:chrome": "cd distribution && webstore upload --auto-publish",
+		"release:firefox": "cd distribution && web-ext-submit",
+		"start": "web-ext run --target=chromium",
+		"start:firefox": "web-ext run",
+		"start:safari": "open 'safari/build/Release/Refined GitHub.app'",
+		"test": "run-p ava lint:* build:*",
+		"watch": "run-p watch:* --continue-on-error",
+		"watch:typescript": "tsc --noEmit --watch --preserveWatchOutput",
+		"watch:webpack": "webpack --mode=development --watch"
 	},
 	"stylelint": {
 		"extends": "stylelint-config-xo",
 		"rules": {
 			"selector-type-no-unknown": null,
 			"declaration-no-important": null,
-			"property-no-vendor-prefix": null,
-			"property-blacklist": null,
 			"selector-class-pattern": null,
 			"selector-id-pattern": null,
-			"rule-empty-line-before": null,
-			"at-rule-empty-line-before": null
+			"selector-max-universal": null
 		}
 	},
-	"engines": {
-		"node": ">=10.0.0"
+	"ava": {
+		"files": [
+			".built/test/*.mjs"
+		]
+	},
+	"dependencies": {
+		"@cheap-glitch/mi-cron": "^1.0.1",
+		"@primer/octicons-react": "^11.2.0",
+		"copy-text-to-clipboard": "^2.2.0",
+		"debounce-fn": "^4.0.0",
+		"delay": "^4.4.0",
+		"delegate-it": "^2.0.2",
+		"dom-chef": "^4.2.2",
+		"dom-loaded": "^2.0.0",
+		"doma": "^3.0.1",
+		"element-ready": "^5.0.0",
+		"fit-textarea": "^2.0.0",
+		"flat-zip": "^1.0.1",
+		"github-url-detection": "^4.5.2",
+		"image-promise": "^7.0.1",
+		"indent-textarea": "^2.0.3",
+		"js-abbreviation-number": "^1.0.0",
+		"linkify-issues": "2.0.0-nolookbehind",
+		"linkify-urls": "3.1.0-nolookbehind",
+		"mem": "^8.0.0",
+		"one-event": "^2.0.0",
+		"one-mutation": "^1.0.0",
+		"onetime": "^5.1.2",
+		"push-form": "^0.8.0",
+		"regex-join": "^1.0.0",
+		"select-dom": "^7.0.0-6",
+		"selector-observer": "^2.1.6",
+		"shorten-repo-url": "^2.0.1",
+		"strip-indent": "^3.0.0",
+		"text-field-edit": "^3.1.0",
+		"tiny-version-compare": "^3.0.1",
+		"twas": "^2.1.2",
+		"webext-base-css": "^1.3.1",
+		"webext-domain-permission-toggle": "^1.1.0",
+		"webext-dynamic-content-scripts": "^7.0.0",
+		"webext-options-sync-per-domain": "^2.0.2",
+		"webext-storage-cache": "^4.2.0",
+		"webextension-polyfill": "^0.7.0",
+		"zip-text-nodes": "^1.0.0"
+	},
+	"devDependencies": {
+		"@ava/typescript": "^1.1.1",
+		"@rollup/plugin-typescript": "^8.1.0",
+		"@sindresorhus/tsconfig": "^0.8.0",
+		"@types/chrome": "0.0.127",
+		"@types/codemirror": "^0.0.103",
+		"@types/copy-webpack-plugin": "^6.4.0",
+		"@types/firefox-webext-browser": "^82.0.0",
+		"@types/jsdom": "^16.2.5",
+		"@types/mini-css-extract-plugin": "^1.2.2",
+		"@types/react": "^17.0.0",
+		"@types/terser-webpack-plugin": "^5.0.2",
+		"ava": "^3.15.0",
+		"chrome-webstore-upload-cli": "^1.2.0",
+		"copy-webpack-plugin": "^7.0.0",
+		"css-loader": "^5.0.1",
+		"daily-version": "^2.0.0",
+		"decamelize": "^4.0.0",
+		"dot-json": "^1.2.1",
+		"esbuild-loader": "^2.7.0",
+		"eslint-config-xo-react": "^0.23.0",
+		"eslint-plugin-react": "^7.22.0",
+		"eslint-plugin-react-hooks": "^4.2.0",
+		"jsdom": "^16.4.0",
+		"markdown-wasm": "^1.1.2",
+		"mini-css-extract-plugin": "^1.3.3",
+		"npm-run-all": "^4.1.5",
+		"rollup": "^2.35.1",
+		"size-plugin": "^2.0.1",
+		"string-replace-loader": "^3.0.1",
+		"stylelint": "^13.8.0",
+		"stylelint-config-xo": "^0.20.0",
+		"terser-webpack-plugin": "^5.0.3",
+		"ts-node": "^9.1.1",
+		"tslib": "^2.0.3",
+		"type-fest": "^0.20.2",
+		"typed-query-selector": "^2.2.4",
+		"typescript": "^4.1.3",
+		"web-ext": "^5.4.1",
+		"web-ext-submit": "^5.4.1",
+		"webpack": "^5.11.1",
+		"webpack-cli": "^4.3.1",
+		"xo": "^0.37.1"
+	},
+	"webExt": {
+		"sourceDir": "distribution",
+		"run": {
+			"keepProfileChanges": true,
+			"firefoxProfile": "./test/web-ext-profile",
+			"chromiumProfile": "./test/web-ext-profile",
+			"startUrl": [
+				"github.com"
+			]
+		}
 	}
 }

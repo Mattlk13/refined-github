@@ -1,84 +1,117 @@
+import './forked-to.css';
 import React from 'dom-chef';
 import cache from 'webext-storage-cache';
 import select from 'select-dom';
-import pFilter from 'p-filter';
-import onetime from 'onetime';
-import features from '../libs/features';
-import {isRepoWithAccess} from '../libs/page-detect';
-import {getRepoURL, getUsername} from '../libs/utils';
+import elementReady from 'element-ready';
+import * as pageDetect from 'github-url-detection';
+import {CheckIcon, LinkExternalIcon, RepoForkedIcon} from '@primer/octicons-react';
 
-const getCacheKey = onetime((): string => `forked-to:${getUsername()}@${findForkedRepo() || getRepoURL()}`);
+import features from '.';
+import fetchDom from '../helpers/fetch-dom';
+import GitHubURL from '../github-helpers/github-url';
+import {getUsername, getForkedRepo, getRepo} from '../github-helpers';
 
-async function save(forks: string[]): Promise<void> {
-	if (forks.length === 0) {
-		return cache.delete(getCacheKey());
-	}
+const getForkSourceRepo = (): string => getForkedRepo() ?? getRepo()!.nameWithOwner;
+const getCacheKey = (): string => `forked-to:${getForkSourceRepo()}@${getUsername()}`;
 
-	return cache.set(getCacheKey(), forks, 10);
-}
-
-async function saveAllForks(): Promise<void> {
+const updateCache = cache.function(async (): Promise<string[] | undefined> => {
+	const document = await fetchDom(`/${getForkSourceRepo()}/fork?fragment=1`);
 	const forks = select
-		.all('details-dialog[src*="/fork"] .octicon-repo-forked')
+		.all('.octicon-repo-forked', document)
 		.map(({nextSibling}) => nextSibling!.textContent!.trim());
 
-	save(forks);
-}
+	return forks.length > 0 ? forks : undefined;
+}, {
+	maxAge: {hours: 1},
+	staleWhileRevalidate: {days: 5},
+	cacheKey: getCacheKey
+});
 
-function findForkedRepo(): string | undefined {
-	const forkSourceElement = select<HTMLAnchorElement>('.fork-flag:not(.rgh-forked) a');
-	if (forkSourceElement) {
-		return forkSourceElement.pathname.slice(1);
+function createLink(baseRepo: string): string {
+	if (pageDetect.isSingleFile() || pageDetect.isRepoTree() || pageDetect.isEditingFile()) {
+		const [user, repository] = baseRepo.split('/', 2);
+		const url = new GitHubURL(location.href).assign({
+			user,
+			repository
+		});
+		return url.pathname;
 	}
 
-	return undefined;
+	return '/' + baseRepo;
 }
 
-async function validateFork(repo: string): Promise<boolean> {
-	const response = await fetch(location.origin + '/' + repo, {method: 'HEAD'});
-	return response.ok;
-}
+async function updateUI(forks: string[]): Promise<void> {
+	// Don't add button if you're visiting the only fork available
+	if (forks.length === 1 && forks[0] === getRepo()!.nameWithOwner) {
+		return;
+	}
 
-async function updateForks(forks: string[]): Promise<void> {
-	// Don't validate current page: it exists; it won't be shown in the list; it will be added later anyway
-	const validForks = await pFilter(forks.filter(fork => fork !== getRepoURL()), validateFork);
-
-	// Add current repo to cache if it's a fork
-	if (isRepoWithAccess() && findForkedRepo()) {
-		save([...validForks, getRepoURL()].sort(undefined));
+	document.body.classList.add('rgh-forked-to');
+	const forkCounter = await elementReady('.social-count[href$="/network/members"]', {waitForChildren: false});
+	if (forks.length === 1) {
+		forkCounter!.before(
+			<a
+				href={createLink(forks[0])}
+				className="btn btn-sm float-left rgh-forked-button"
+				title={`Open your fork at ${forks[0]}`}
+			>
+				<LinkExternalIcon/>
+			</a>
+		);
 	} else {
-		save(validForks);
+		forkCounter!.before(
+			<details className="details-reset details-overlay select-menu float-left">
+				<summary
+					className="select-menu-button float-left btn btn-sm btn-with-count rgh-forked-button"
+					aria-haspopup="menu"
+					title="Open any of your forks"/>
+				<details-menu
+					style={{zIndex: 99}}
+					className="select-menu-modal position-absolute right-0 mt-5"
+				>
+					<div className="select-menu-header">
+						<span className="select-menu-title">Your forks</span>
+					</div>
+					{forks.map(fork => (
+						<a
+							href={createLink(fork)}
+							className={`select-menu-item ${fork === getRepo()!.nameWithOwner ? 'selected' : ''}`}
+							title={`Open your fork at ${fork}`}
+						>
+							<span className="select-menu-item-icon rgh-forked-to-icon">
+								{fork === getRepo()!.nameWithOwner ? <CheckIcon/> : <RepoForkedIcon/>}
+							</span>
+							{fork}
+						</a>
+					))}
+				</details-menu>
+			</details>
+		);
 	}
 }
 
-async function init(): Promise<void> {
-	select('details-dialog[src*="/fork"] include-fragment')!
-		.addEventListener('load', saveAllForks);
-
+async function init(): Promise<void | false> {
 	const forks = await cache.get<string[]>(getCacheKey());
-
 	if (forks) {
-		const pageHeader = select('.pagehead h1.public')!;
-		for (const fork of forks.filter(fork => fork !== getRepoURL())) {
-			pageHeader.append(
-				<span className="fork-flag rgh-forked">
-					forked to <a href={`/${fork}`}>{fork}</a>
-				</span>
-			);
-		}
+		await updateUI(forks);
 	}
 
-	// Validate cache after showing links once, to make it faster
-	await updateForks(forks || []);
+	// This feature only applies to users that have multiple organizations, because that makes a fork picker modal appear when clicking on "Fork"
+	const hasOrganizations = await elementReady('details-dialog[src*="/fork"] include-fragment');
+
+	// Only fetch/update forks when we see a fork (on the current page or in the cache).
+	// This avoids having to `updateCache` for every single repo you visit.
+	if (forks || (hasOrganizations && pageDetect.isForkedRepo())) {
+		await updateCache();
+	} else {
+		return false;
+	}
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Your repo forks are shown under the repo title',
-	screenshot: 'https://user-images.githubusercontent.com/55841/60543588-f5c9df80-9d16-11e9-8667-52ff16b2cb16.png',
+void features.add(__filebasename, {
 	include: [
-		features.isRepo
+		pageDetect.isRepo
 	],
-	load: features.onAjaxedPages,
+	awaitDomReady: false,
 	init
 });

@@ -1,86 +1,214 @@
+import 'webext-base-css/webext-base.css';
 import './options.css';
 import React from 'dom-chef';
+import cache from 'webext-storage-cache';
+import domify from 'doma';
 import select from 'select-dom';
-import linkifyUrls from 'linkify-urls';
+import delegate from 'delegate-it';
 import fitTextarea from 'fit-textarea';
-import linkifyIssues from 'linkify-issues';
-import indentTextarea from 'indent-textarea';
-import {applyToLink as shortenLink} from 'shorten-repo-url';
-import editTextNodes from './libs/linkify-text-nodes';
-import parseBackticks from './libs/parse-backticks';
-import {getAllOptions} from './options-storage';
+import * as indentTextarea from 'indent-textarea';
 
-function parseDescription(description: string): DocumentFragment {
-	const descriptionFragment = parseBackticks(description);
-	editTextNodes(linkifyUrls, descriptionFragment);
-	editTextNodes(linkifyIssues, descriptionFragment);
+import {perDomainOptions} from './options-storage';
 
-	for (const a of select.all('a', descriptionFragment)) {
-		shortenLink(a, location.href);
-	}
-
-	return descriptionFragment;
+interface Status {
+	error?: true;
+	text?: string;
+	scopes?: string[];
 }
 
-function buildFeatureCheckbox({name, description, screenshot, disabled}: FeatureInfo): HTMLElement {
-	// `undefined` disconnects it from the options
-	const key = disabled ? undefined : `feature:${name}`;
+function reportStatus({error, text, scopes}: Status): void {
+	const tokenStatus = select('#validation')!;
+	tokenStatus.textContent = text ?? '';
+	if (error) {
+		tokenStatus.dataset.validation = 'invalid';
+	} else {
+		delete tokenStatus.dataset.validation;
+	}
 
-	const parsedDescription = parseDescription(
-		(disabled ? `Disabled because of ${disabled}; \n` : '') +
-		description
-	);
+	for (const scope of select.all('[data-scope]')) {
+		if (scopes) {
+			scope.dataset.validation = scopes.includes(scope.dataset.scope!) ? 'valid' : 'invalid';
+		} else {
+			scope.dataset.validation = '';
+		}
+	}
+}
+
+async function getTokenScopes(personalToken: string): Promise<string[]> {
+	const tokenLink = select('a#personal-token-link')!;
+	const url = tokenLink.host === 'github.com' ?
+		'https://api.github.com/' :
+		`${tokenLink.origin}/api/v3/`;
+
+	const response = await fetch(url, {
+		cache: 'no-store',
+		headers: {
+			'User-Agent': 'Refined GitHub',
+			Accept: 'application/vnd.github.v3+json',
+			Authorization: `token ${personalToken}`
+		}
+	});
+
+	if (!response.ok) {
+		const details = await response.json();
+		throw new Error(details.message);
+	}
+
+	const scopes = response.headers.get('X-OAuth-Scopes')!.split(', ');
+	if (scopes.includes('repo')) {
+		scopes.push('public_repo');
+	}
+
+	return scopes;
+}
+
+async function validateToken(): Promise<void> {
+	reportStatus({});
+	const tokenField = select('input[name="personalToken"]')!;
+	if (!tokenField.validity.valid || tokenField.value.length === 0) {
+		return;
+	}
+
+	reportStatus({text: 'Validating…'});
+
+	try {
+		reportStatus({
+			scopes: await getTokenScopes(tokenField.value)
+		});
+	} catch (error: unknown) {
+		reportStatus({error: true, text: (error as Error).message});
+		throw error;
+	}
+}
+
+function moveDisabledFeaturesToTop(): void {
+	const container = select('.js-features')!;
+	for (const unchecked of select.all('.feature [type=checkbox]:not(:checked)', container).reverse()) {
+		// .reverse() needed to preserve alphabetical order while prepending
+		container.prepend(unchecked.closest('.feature')!);
+	}
+}
+
+function buildFeatureCheckbox({id, description, screenshot}: FeatureMeta): HTMLElement {
+	const descriptionElement = domify.one(description)!;
+	descriptionElement.className = 'description';
 
 	return (
-		<div className="feature">
-			<input type="checkbox" name={key} id={name} disabled={Boolean(disabled)} />
+		<div className="feature" data-text={`${id} ${description}`.toLowerCase()}>
+			<input type="checkbox" name={`feature:${id}`} id={id}/>
 			<div className="info">
-				<label for={name}>
-					<span className="feature-name">{name}</span>
+				<label htmlFor={id}>
+					<span className="feature-name">{id}</span>
 					{' '}
-					<a href={`https://github.com/sindresorhus/refined-github/blob/master/source/features/${name}.tsx`}>
+					<a href={`https://github.com/sindresorhus/refined-github/blob/master/source/features/${id}.tsx`}>
 						source
 					</a>
-					{screenshot ? <>, <a href={screenshot}>screenshot</a></> : ''}
-					<br/>
-					<p className="description">{parsedDescription}</p>
+					{screenshot && <>, <a href={screenshot}>screenshot</a></>}
+					{descriptionElement}
 				</label>
 			</div>
 		</div>
 	);
 }
 
-async function init(): Promise<void> {
-	select('.js-features')!.append(...__featuresInfo__.map(buildFeatureCheckbox));
+async function clearCacheHandler(event: Event): Promise<void> {
+	await cache.clear();
+	const button = event.target as HTMLButtonElement;
+	const initialText = button.textContent;
+	button.textContent = 'Cache cleared!';
+	button.disabled = true;
+	setTimeout(() => {
+		button.textContent = initialText;
+		button.disabled = false;
+	}, 2000);
+}
 
-	const form = select('form')!;
-	const optionsByDomain = await getAllOptions();
-	await optionsByDomain.get('github.com')!.syncForm(form);
+function featuresFilterHandler(event: Event): void {
+	const keywords = (event.currentTarget as HTMLInputElement).value.toLowerCase()
+		.replace(/\W/g, ' ')
+		.split(/\s+/)
+		.filter(Boolean); // Ignore empty strings
+	for (const feature of select.all('.feature')) {
+		feature.hidden = !keywords.every(word => feature.dataset.text!.includes(word));
+	}
+}
 
+async function highlightNewFeatures(): Promise<void> {
+	const {featuresAlreadySeen} = await browser.storage.local.get({featuresAlreadySeen: {}});
+	const isFirstVisit = Object.keys(featuresAlreadySeen).length === 0;
+	const tenDaysAgo = Date.now() - (10 * 24 * 60 * 60 * 1000);
+
+	for (const feature of select.all('.feature [type=checkbox]')) {
+		if (!(feature.id in featuresAlreadySeen)) {
+			featuresAlreadySeen[feature.id] = isFirstVisit ? tenDaysAgo : Date.now();
+		}
+
+		if (featuresAlreadySeen[feature.id] > tenDaysAgo) {
+			feature.parentElement!.classList.add('feature-new');
+		}
+	}
+
+	void browser.storage.local.set({featuresAlreadySeen});
+}
+
+async function generateDom(): Promise<void> {
+	// Generate list
+	select('.js-features')!.append(...__featuresMeta__.map(buildFeatureCheckbox));
+
+	// Update list from saved options
+	await perDomainOptions.syncForm('form');
+
+	// Decorate list
+	moveDisabledFeaturesToTop();
+	void highlightNewFeatures();
+	void validateToken();
+
+	// Move debugging tools higher when side-loaded
+	if (process.env.NODE_ENV === 'development') {
+		select('#debugging-position')!.replaceWith(select('#debugging')!);
+	}
+}
+
+function addEventListeners(): void {
+	// Update domain-dependent page content when the domain is changed
+	select('.OptionsSyncPerDomain-picker select')?.addEventListener('change', ({currentTarget: dropdown}) => {
+		const host = (dropdown as HTMLSelectElement).value;
+		select('a#personal-token-link')!.host = host === 'default' ? 'github.com' : host;
+		// Delay validating to let options load first
+		setTimeout(validateToken, 100);
+	});
+
+	// Refresh page when permissions are changed (because the dropdown selector needs to be regenerated)
+	browser.permissions.onRemoved.addListener(() => {
+		location.reload();
+	});
+	browser.permissions.onAdded.addListener(() => {
+		location.reload();
+	});
+
+	// Improve textareas editing
 	fitTextarea.watch('textarea');
 	indentTextarea.watch('textarea');
 
-	// GitHub Enterprise domain picker
-	if (optionsByDomain.size > 1) {
-		const dropdown = (
-			<select>
-				{[...optionsByDomain.keys()].map(domain => <option value={domain}>{domain}</option>)}
-			</select>
-		) as any as HTMLSelectElement;
-		form.before(<p>Domain selector: {dropdown}</p>, <hr/>);
-		dropdown.addEventListener('change', () => {
-			for (const [domain, options] of optionsByDomain) {
-				if (dropdown.value === domain) {
-					options.syncForm(form);
-				} else {
-					options.stopSyncForm();
-				}
-			}
-		});
-	}
+	// Filter feature list
+	select('#filter-features')!.addEventListener('input', featuresFilterHandler);
 
-	// Move minimized users input field below the respective feature checkbox
-	select('[for="minimize-user-comments"]')!.after(select('.js-minimized-users-container')!);
+	// Add cache clearer
+	select('#clear-cache')!.addEventListener('click', clearCacheHandler);
+
+	// Add token validation
+	select('[name="personalToken"]')!.addEventListener('input', validateToken);
+
+	// Ensure all links open in a new tab #3181
+	delegate(document, '[href^="http"]', 'click', (event: delegate.Event<MouseEvent, HTMLAnchorElement>) => {
+		event.preventDefault();
+		window.open(event.delegateTarget.href);
+	});
 }
 
-init();
+async function init(): Promise<void> {
+	await generateDom();
+	addEventListeners();
+}
+
+void init();

@@ -1,9 +1,12 @@
 import React from 'dom-chef';
+import onetime from 'onetime';
 import elementReady from 'element-ready';
-import features from '../libs/features';
+import * as pageDetect from 'github-url-detection';
+
+import features from '.';
 
 async function init(): Promise<false | void> {
-	const exploreLink = await elementReady('.Header-link[href="/explore"]');
+	const exploreLink = await elementReady('.Header-link[href="/explore"]', {waitForChildren: false});
 	if (!exploreLink) {
 		return false;
 	}
@@ -13,15 +16,13 @@ async function init(): Promise<false | void> {
 	);
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Adds a `Trending` link to the global navbar and a keyboard shortcut: `g` ` t`',
-	screenshot: false,
-	exclude: [
-		features.isGist
-	],
+void features.add(__filebasename, {
 	shortcuts: {
 		'g t': 'Go to Trending'
 	},
-	init
+	exclude: [
+		pageDetect.isGist
+	],
+	awaitDomReady: false,
+	init: onetime(init)
 });

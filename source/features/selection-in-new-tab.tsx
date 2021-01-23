@@ -1,27 +1,29 @@
 import select from 'select-dom';
-import features from '../libs/features';
-import {isEditable} from '../libs/dom-utils';
+import onetime from 'onetime';
 
-function init(): void {
-	document.addEventListener('keypress', (event: KeyboardEvent) => {
-		const selected = select<HTMLAnchorElement>('.navigation-focus .js-navigation-open[href]');
-		if (selected && event.key === 'O' && !isEditable(event.target)) {
-			browser.runtime.sendMessage({
-				openUrls: [selected.href]
-			});
+import features from '.';
+import {isEditable} from '../helpers/dom-utils';
 
-			// Get the list element that contains the unread class and mark it as read.
-			selected.closest('li')!.classList.replace('unread', 'read');
-		}
-	});
+function openInNewTab({key, target}: KeyboardEvent): void {
+	const selected = select('.navigation-focus a.js-navigation-open[href]');
+	if (selected && key === 'O' && !isEditable(target)) {
+		void browser.runtime.sendMessage({
+			openUrls: [selected.href]
+		});
+
+		// Get the list element that contains the unread class and mark it as read.
+		selected.closest('.unread')?.classList.replace('unread', 'read');
+	}
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Adds a keyboard shortcut to open selection in new tab when navigating via  `j` and `k`: `Shift` `o`.',
-	screenshot: false,
+function init(): void {
+	document.addEventListener('keypress', openInNewTab);
+}
+
+void features.add(__filebasename, {
 	shortcuts: {
 		'shift o': 'Open selection in new tab'
 	},
-	init
+	awaitDomReady: false,
+	init: onetime(init)
 });

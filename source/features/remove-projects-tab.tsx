@@ -1,24 +1,24 @@
 import React from 'dom-chef';
 import select from 'select-dom';
 import onetime from 'onetime';
+import oneMutation from 'one-mutation';
 import elementReady from 'element-ready';
-import features from '../libs/features';
-import {isUserProfile, isOwnOrganizationProfile, isOrganizationProfile} from '../libs/page-detect';
+import * as pageDetect from 'github-url-detection';
 
-const addNewProjectLink = onetime(() => {
-	if (isUserProfile()) {
-		// The link already exists on our profile,
-		// and we can't create projects on others' profiles
-		return;
+import features from '.';
+
+async function getProjectsTab(): Promise<HTMLElement | undefined> {
+	return elementReady([
+		'[data-hotkey="g b"]', // In organizations and repos
+		'[aria-label="User profile"] [href$="?tab=projects"]' // In user profiles
+	].join());
+}
+
+// We can't detect whether the user can create projects on a repo, so this link is potentially a 404
+async function addNewProjectLink(): Promise<void | false> {
+	if (!await getProjectsTab()) {
+		return false;
 	}
-
-	if (isOrganizationProfile() && !isOwnOrganizationProfile()) {
-		// We can only add projects to our organizations
-		return;
-	}
-
-	// We can't detect whether we can create projects on a repo,
-	// so we're just gonna show a potentially-404 link. 🤷
 
 	// URLs patterns:
 	// https://github.com/orgs/USER/projects/new
@@ -30,51 +30,55 @@ const addNewProjectLink = onetime(() => {
 			New project
 		</a>
 	);
-});
-
-async function init(): Promise<false | void> {
-	await elementReady(`
-		.orghead + *,
-		.repohead + *,
-		.user-profile-nav + *
-	`); // Wait for the tab bar to be loaded
-
-	const projectsTab = select([
-		'[data-hotkey="g b"]', // In organizations and repos
-		'.user-profile-nav [href$="?tab=projects"]' // In user profiles
-	].join());
-
-	if (!projectsTab) {
-		// Projects aren't enabled here
-		return;
-	}
-
-	addNewProjectLink();
-
-	// If there's a settings tab, the current user can disable the projects,
-	// so the tab should not be hidden
-	if (select.exists([
-		'.js-repo-nav [data-selected-links^="repo_settings"]', // In repos
-		'.pagehead-tabs-item[href$="/settings/profile"]' // In organizations
-	].join())) {
-		return;
-	}
-
-	// Only remove the tab if it's not the current page and if it has 0 projects
-	if (!projectsTab.matches('.selected') && select('.Counter', projectsTab)!.textContent!.trim() === '0') {
-		projectsTab.remove();
-	}
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Hides the `Projects` tab from repositories and profiles when it’s empty. New projects can still be created via the `Create new…` menu.',
-	screenshot: 'https://user-images.githubusercontent.com/1402241/34909214-18b6fb2e-f8cf-11e7-8556-bed748596d3b.png',
+export default async function getTabCount(tab: Element): Promise<number> {
+	const counter = select('.Counter, .num', tab);
+	if (!counter) {
+		// GitHub might have already dropped the counter, which means it's 0
+		return 0;
+	}
+
+	if (!counter.firstChild) {
+		// It's still loading
+		await oneMutation(tab, {childList: true, subtree: true}); // TODO: subtree might not be necessary
+	}
+
+	return Number(counter.textContent);
+}
+
+async function removeProjectsTab(): Promise<void | false> {
+	const projectsTab = await getProjectsTab();
+
+	if (
+		!projectsTab || // Projects disabled 🎉
+		projectsTab.matches('.selected') || // User is on Projects tab 👀
+		await getTabCount(projectsTab) > 0 // There are open projects
+	) {
+		return false;
+	}
+
+	projectsTab.remove();
+}
+
+void features.add(__filebasename, {
 	include: [
-		features.isRepo,
-		features.isUserProfile,
-		features.isOrganizationProfile
+		pageDetect.isRepo,
+		pageDetect.isUserProfile,
+		pageDetect.isOrganizationProfile
 	],
-	load: features.onAjaxedPages,
-	init
+	exclude: [
+		// Repo/Organization owners should see the tab. If they don't need it, they should disable Projects altogether
+		pageDetect.canUserEditRepo,
+		pageDetect.canUserEditOrganization
+	],
+	awaitDomReady: false,
+	init: removeProjectsTab
+}, {
+	include: [
+		pageDetect.isRepo,
+		pageDetect.isOrganizationProfile
+	],
+	awaitDomReady: false,
+	init: onetime(addNewProjectLink)
 });

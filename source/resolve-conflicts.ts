@@ -1,15 +1,13 @@
 /// <reference types="codemirror" />
 
-interface CodeMirrorInstance extends CodeMirror.Editor, CodeMirror.Doc {}
-
 declare namespace CodeMirror {
 	interface LineHandle {
 		widgets: unknown[];
-		lineNo(): number;
+		lineNo: () => number;
 	}
 }
 
-const editor: CodeMirrorInstance = document.querySelector<any>('.CodeMirror').CodeMirror;
+const editor = document.querySelector<Element & {CodeMirror: CodeMirror.Editor}>('.CodeMirror')!.CodeMirror;
 
 // Event fired when each file is loaded
 editor.on('swapDoc', () => setTimeout(addWidget, 1));
@@ -38,7 +36,7 @@ function appendLineInfo(lineHandle: CodeMirror.LineHandle, text: string): void {
 	// Only append text if it's not already there
 	if (!lineHandle.text.includes(text)) {
 		const line = lineHandle.lineNo();
-		editor.replaceRange(text, {line, ch: Infinity}); // Infinity = end of line
+		editor.replaceRange(text, {line, ch: Number.POSITIVE_INFINITY}); // Infinity = end of line
 		editor.clearHistory();
 	}
 }
@@ -46,7 +44,7 @@ function appendLineInfo(lineHandle: CodeMirror.LineHandle, text: string): void {
 // Create and add widget if not already in the document
 function addWidget(): void {
 	editor.eachLine(lineHandle => {
-		if (lineHandle.widgets) {
+		if (Array.isArray(lineHandle.widgets) && lineHandle.widgets.length > 0) {
 			return;
 		}
 
@@ -64,11 +62,11 @@ function addWidget(): void {
 	});
 }
 
-function createButton(branch: string, title?: string): HTMLButtonElement {
+function createButton(branch: string, title = `Accept ${branch} Change`): HTMLButtonElement {
 	const link = document.createElement('button');
 	link.type = 'button';
 	link.className = 'btn-link';
-	link.textContent = title || `Accept ${branch} Change`;
+	link.textContent = title;
 	link.addEventListener('click', ({target}) => {
 		acceptBranch(branch, getLineNumber(target as Element));
 	});
@@ -94,7 +92,7 @@ function acceptBranch(branch: string, line: number): void {
 	let deleteNextLine = false;
 
 	const linesToRemove: number[] = [];
-	editor.eachLine(line, Infinity, lineHandle => {
+	editor.eachLine(line, Number.POSITIVE_INFINITY, lineHandle => {
 		// Determine whether to remove the following line(s)
 		if (lineHandle.text.startsWith('<<<<<<<')) {
 			deleteNextLine = branch === 'Current';

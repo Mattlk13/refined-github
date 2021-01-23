@@ -1,16 +1,19 @@
 import React from 'dom-chef';
 import select from 'select-dom';
-import features from '../libs/features';
+import delegate from 'delegate-it';
+import * as pageDetect from 'github-url-detection';
+
+import features from '.';
+import looseParseInt from '../helpers/loose-parse-int';
 
 function init(): false | void {
 	const form = select('[action$="/reviews"]')!;
-	const radios = select.all<HTMLInputElement>('[type="radio"][name="pull_request_review[event]"]', form);
+	const radios = select.all('input[type="radio"][name="pull_request_review[event]"]', form);
 
 	if (radios.length === 0) {
 		return false;
 	}
 
-	const submitButton = select<HTMLInputElement>('[type="submit"]', form)!;
 	const container = select('.form-actions', form)!;
 
 	// Set the default action for cmd+enter to Comment
@@ -40,11 +43,13 @@ function init(): false | void {
 
 		container.append(
 			<button
+				type="submit"
 				name="pull_request_review[event]"
 				value={radio.value}
 				className={classes.join(' ')}
-				aria-label={tooltip || undefined}
-				disabled={radio.disabled}>
+				aria-label={tooltip!}
+				disabled={radio.disabled}
+			>
 				{radio.nextSibling}
 			</button>
 		);
@@ -65,26 +70,29 @@ function init(): false | void {
 		radio.closest('.form-checkbox')!.remove();
 	}
 
-	submitButton.remove();
+	select('[type="submit"]:not([name])', form)!.remove(); // The selector excludes the "Cancel" button
+
+	// This will prevent submission when clicking "Comment" and "Request changes" without entering a comment and no other review comments are pending
+	delegate<HTMLButtonElement>(form, 'button', 'click', ({delegateTarget: {value}}) => {
+		const pendingComments = looseParseInt(select('.js-reviews-toggle .js-pending-review-comment-count')!);
+		const submissionRequiresComment = pendingComments === 0 && (value === 'reject' || value === 'comment');
+		select('#pull_request_review_body', form)!.toggleAttribute('required', submissionRequiresComment);
+	});
 
 	// Freeze form to avoid duplicate submissions
 	form.addEventListener('submit', () => {
 		// Delay disabling the fields to let them be submitted first
 		setTimeout(() => {
-			for (const control of select.all<HTMLButtonElement | HTMLTextAreaElement>('button, textarea', form)) {
+			for (const control of select.all('button, textarea', form)) {
 				control.disabled = true;
 			}
 		});
 	});
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Simplifies the PR review form: Approve or reject reviews faster with one-click review-type buttons.',
-	screenshot: 'https://user-images.githubusercontent.com/1402241/34326942-529cb7c0-e8f3-11e7-9bee-98b667e18a90.png',
+void features.add(__filebasename, {
 	include: [
-		features.isPR
+		pageDetect.isPR
 	],
-	load: features.onAjaxedPages,
 	init
 });

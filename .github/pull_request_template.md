@@ -1,8 +1,11 @@
-<!-- Thanks for contributing! 🍄 -->
+<!-- Please follow the template -->
+Thanks for contributing! 🍄
 
-Closes 
-<!--    👆 Does this PR close/fix an existing issue? Put it here. E.g. `Closes #10` -->
+1. LINKED ISSUES:
+   Does this PR close/fix an existing issue? Write something like `Closes #10`
 
+2. TEST URLS:
+   Add some test URLs
 
-# Test
-<!-- List some URLs that reviewers can use to test your PR -->
+3. SCREENSHOT:
+   Add a screenshot here if your PR makes visual changes

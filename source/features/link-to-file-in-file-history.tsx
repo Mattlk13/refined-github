@@ -1,44 +1,37 @@
 import React from 'dom-chef';
 import select from 'select-dom';
-import features from '../libs/features';
-import {file} from '../libs/icons';
-import {getRepoPath} from '../libs/utils';
-import {groupSiblings} from '../libs/group-buttons';
+import {FileIcon} from '@primer/octicons-react';
+import * as pageDetect from 'github-url-detection';
+
+import features from '.';
+import GitHubURL from '../github-helpers/github-url';
+import {groupSiblings} from '../github-helpers/group-buttons';
 
 function init(): void | false {
-	// /user/repo/commits/master/readme.md -> 'readme.md'
-	// /user/repo/commits/master/          -> ''
-	const path = getRepoPath()!.replace(/^commits\/[^/]+\/?/, '');
-	if (!path) {
+	const {filePath} = new GitHubURL(location.href);
+	if (!filePath) {
 		return false;
 	}
 
-	for (const rootLink of select.all<HTMLAnchorElement>('[aria-label="Browse the repository at this point in the history"]')) {
+	for (const rootLink of select.all('a[aria-label="Browse the repository at this point in the history"]')) {
 		// `rootLink.pathname` points to /tree/ but GitHub automatically redirects to /blob/ when the path is of a file
 		rootLink.before(
 			<a
-				href={rootLink.pathname + '/' + path}
+				href={rootLink.pathname + '/' + filePath}
 				className="btn btn-outline tooltipped tooltipped-sw"
 				aria-label="See object at this point in the history"
 			>
-				{file()}
+				<FileIcon/>
 			</a>
 		);
-
-		// TODO: drop `as` after https://github.com/Microsoft/TSJS-lib-generator/pull/697
-		(rootLink.closest('.commit-links-cell') as HTMLElement).style.width = 'auto';
 
 		groupSiblings(rootLink);
 	}
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Adds links to the file itself in a file’s commit list.',
-	screenshot: 'https://user-images.githubusercontent.com/22439276/57195061-b88ddf00-6f6b-11e9-8ad9-13225d09266d.png',
+void features.add(__filebasename, {
 	include: [
-		features.isCommitList
+		pageDetect.isRepoCommitList
 	],
-	load: features.onAjaxedPages,
 	init
 });

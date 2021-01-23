@@ -1,43 +1,59 @@
 import './toggle-files-button.css';
+import cache from 'webext-storage-cache';
 import React from 'dom-chef';
 import select from 'select-dom';
 import delegate from 'delegate-it';
-import features from '../libs/features';
-import * as icons from '../libs/icons';
-import observeEl from '../libs/simplified-element-observer';
+import elementReady from 'element-ready';
+import * as pageDetect from 'github-url-detection';
+import {FoldIcon, UnfoldIcon} from '@primer/octicons-react';
+
+import features from '.';
+import observeElement from '../helpers/simplified-element-observer';
+
+const cacheKey = 'files-hidden';
 
 function addButton(): void {
 	// `div` excludes `include-fragment`, which means the list is still loading. #2160
-	const filesHeader = select('div.commit-tease');
+	const filesHeader = select([
+		'div.commit-tease',
+		'.Box-header--blue .Details > :last-child > ul' // "Repository refresh" layout
+	]);
 	if (!filesHeader || select.exists('.rgh-toggle-files')) {
 		return;
 	}
 
 	filesHeader.append(
 		<button
+			type="button"
 			className="btn-octicon rgh-toggle-files"
 			aria-label="Toggle files section"
-			aria-expanded="true">
-			{icons.chevronDown()}
+		>
+			<FoldIcon/>
+			<UnfoldIcon/>
 		</button>
 	);
 }
 
-function init(): void {
-	const repoContent = select('.repository-content')!;
-	observeEl(repoContent, addButton);
-	delegate('.rgh-toggle-files', 'click', ({delegateTarget}) => {
-		delegateTarget.setAttribute('aria-expanded', String(!repoContent.classList.toggle('rgh-files-hidden')));
-	});
+async function toggleHandler(): Promise<void> {
+	const isHidden = select('.repository-content')!.classList.toggle('rgh-files-hidden');
+	await (isHidden ? cache.set(cacheKey, true) : cache.delete(cacheKey));
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Adds a button to toggle the repo file list.',
-	screenshot: 'https://user-images.githubusercontent.com/1402241/35480123-68b9af1a-043a-11e8-8934-3ead3cff8328.gif',
+async function init(): Promise<void> {
+	const repoContent = (await elementReady('.repository-content'))!;
+	observeElement(repoContent, addButton);
+	delegate(document, '.rgh-toggle-files', 'click', toggleHandler);
+
+	if (await cache.get<boolean>(cacheKey)) {
+		repoContent.classList.add('rgh-files-hidden');
+	}
+}
+
+void features.add(__filebasename, {
 	include: [
-		features.isRepoTree
+		pageDetect.isRepoTree
 	],
-	load: features.onAjaxedPages,
+	awaitDomReady: false,
+	repeatOnBackButton: true,
 	init
 });

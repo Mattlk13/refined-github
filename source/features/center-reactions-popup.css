@@ -12,6 +12,7 @@
 	left: 50% !important;
 	transform: translate(-50%) !important;
 }
+
 .add-reaction-popover {
 	animation-name: rgh-scale-in-centered !important;
 }
@@ -19,7 +20,7 @@
 @keyframes rgh-scale-in-centered {
 	0% {
 		transform: translate(-50%) scale(0.5);
-		opacity: 0;
+		opacity: 0%;
 	}
 
 	100% {
@@ -39,6 +40,7 @@ The selector considers
 td.js-line-comments:last-child .timeline-comment-actions .add-reaction-popover {
 	left: -15px !important;
 }
+
 td.js-line-comments:last-child .timeline-comment-actions .add-reaction-popover::before,
 td.js-line-comments:last-child .timeline-comment-actions .add-reaction-popover::after {
 	left: 140px !important;
@@ -51,6 +53,6 @@ td.js-line-comments:last-child .timeline-comment-actions .add-reaction-popover::
 
 /* Keep colored button when reaction popup is open */
 .dropdown-details[open] .timeline-comment-action {
-	opacity: 1;
+	opacity: 100%;
 	color: #4078c0;
 }

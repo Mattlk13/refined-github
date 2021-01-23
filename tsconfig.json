@@ -1,11 +1,15 @@
 {
 	"extends": "@sindresorhus/tsconfig",
 	"compilerOptions": {
-		"target": "esnext",
+		"target": "es2020",
 		"declaration": false,
-		"esModuleInterop": true
+		"esModuleInterop": true,
+		"noUncheckedIndexedAccess": false
 	},
 	"include": [
-		"source"
+		"source",
+		"test",
+		"octicon-svg-loader.ts",
+		"webpack.config.ts"
 	]
 }

@@ -1,28 +1,30 @@
 import React from 'dom-chef';
 import select from 'select-dom';
+import onetime from 'onetime';
 import elementReady from 'element-ready';
-import domLoaded from 'dom-loaded';
-import features from '../libs/features';
+import * as pageDetect from 'github-url-detection';
+
+import features from '.';
+import onProfileDropdownLoad from '../github-events/on-profile-dropdown-load';
 
 async function init(): Promise<void> {
-	(await elementReady('.Header-link[href="/marketplace"]'))!
-		// The Marketplace link seems to have an additional wrapper that other links don't have https://i.imgur.com/KV9rtSq.png
-		.closest('.border-top, .mr-3')!.remove();
+	const marketplaceLink = await elementReady('.Header-link[href="/marketplace"]', {waitForChildren: false});
+	if (marketplaceLink) { // On GHE it can be disabled
+		// The link seems to have an additional wrapper that other links don't have https://i.imgur.com/KV9rtSq.png
+		marketplaceLink.closest('.border-top, .mr-3')!.remove();
 
-	await domLoaded;
-
-	select.last('.header-nav-current-user ~ .dropdown-divider')!.before(
-		<div className="dropdown-divider"></div>,
-		<a className="dropdown-item" href="/marketplace">Marketplace</a>
-	);
+		await onProfileDropdownLoad();
+		select.last('.header-nav-current-user ~ .dropdown-divider')!.before(
+			<div className="dropdown-divider"/>,
+			<a className="dropdown-item" href="/marketplace">Marketplace</a>
+		);
+	}
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Moves the "Marketplace" link from the black header bar to the profile dropdown.',
-	screenshot: false,
+void features.add(__filebasename, {
 	exclude: [
-		features.isGist
+		pageDetect.isGist
 	],
-	init
+	awaitDomReady: false,
+	init: onetime(init)
 });

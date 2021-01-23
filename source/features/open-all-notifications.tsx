@@ -1,19 +1,23 @@
 import './open-all-notifications.css';
 import React from 'dom-chef';
 import select from 'select-dom';
-import delegate, {DelegateEvent} from 'delegate-it';
-import features from '../libs/features';
-import * as icons from '../libs/icons';
-import {groupButtons} from '../libs/group-buttons';
+import delegate from 'delegate-it';
+import * as pageDetect from 'github-url-detection';
+import {LinkExternalIcon} from '@primer/octicons-react';
+
+import features from '.';
 
 const confirmationRequiredCount = 10;
-const unreadNotificationsClass = '.unread .js-notification-target';
 
-function openNotifications({delegateTarget}: DelegateEvent): void {
-	const container = delegateTarget.closest('.boxed-group, .notification-center');
+function getUnreadNotifications(container: ParentNode = document): HTMLElement[] {
+	return select.all('.notification-unread', container);
+}
+
+function openNotifications({delegateTarget}: delegate.Event): void {
+	const container = delegateTarget.closest('.js-notifications-group') ?? document;
 
 	// Ask for confirmation
-	const unreadNotifications = select.all<HTMLAnchorElement>(unreadNotificationsClass, container!);
+	const unreadNotifications = getUnreadNotifications(container);
 	if (
 		unreadNotifications.length >= confirmationRequiredCount &&
 		!confirm(`This will open ${unreadNotifications.length} new tabs. Continue?`)
@@ -21,82 +25,62 @@ function openNotifications({delegateTarget}: DelegateEvent): void {
 		return;
 	}
 
-	browser.runtime.sendMessage({
-		openUrls: unreadNotifications.map(el => el.href)
+	void browser.runtime.sendMessage({
+		openUrls: unreadNotifications.map(element => element.querySelector('a')!.href)
 	});
 
 	// Mark all as read
-	for (const notification of select.all('.unread', container!)) {
-		notification.classList.replace('unread', 'read');
+	for (const notification of unreadNotifications) {
+		notification.classList.replace('notification-unread', 'notification-read');
 	}
 
 	// Remove all now-useless buttons
-	for (const button of select.all(`
-		.rgh-open-notifications-button,
-		.open-repo-notifications,
-		.mark-all-as-read,
-		[href='#mark_as_read_confirm_box']
-	`, container!)) {
+	for (const button of select.all('.rgh-open-notifications-button', container)) {
 		button.remove();
 	}
 }
 
 function addOpenReposButton(): void {
-	for (const repoNotifications of select.all('.boxed-group')) {
-		if (select.exists('.open-repo-notifications', repoNotifications)) {
+	for (const repository of select.all('.js-notifications-group')) {
+		if (getUnreadNotifications(repository).length === 0) {
 			continue;
 		}
 
-		const unreadCount = select.all('.unread', repoNotifications).length;
-		if (unreadCount === 0) {
-			continue;
-		}
-
-		const [, repo] = select<HTMLAnchorElement>('.notifications-repo-link', repoNotifications)!.title.split('/');
-
-		select('.mark-all-as-read', repoNotifications)!.before(
-			<button type="button" className="open-repo-notifications tooltipped tooltipped-w rgh-open-notifications-button" aria-label={`Open all unread \`${repo}\` notifications in tabs`}>
-				{icons.externalLink()}
+		select('.js-grouped-notifications-mark-all-read-button', repository)!.before(
+			<button type="button" className="btn btn-sm mr-2 tooltipped tooltipped-w rgh-open-notifications-button" aria-label="Open all unread notifications from this repo">
+				<LinkExternalIcon width={16}/> Open unread
 			</button>
 		);
 	}
 }
 
 function addOpenAllButton(): void {
-	if (!select.exists('.rgh-open-notifications-button')) {
-		// Move out the extra node that messes with .BtnGroup-item:last-child
-		document.body.append(select('#mark_as_read_confirm_box') || '');
-
-		// Create an open button and add it into a button group
-		const button = <button className="btn btn-sm rgh-open-notifications-button">Open all unread in tabs</button>;
-		select('.tabnav .float-right')!.prepend(button);
-		groupButtons([button, button.nextElementSibling!]);
-	}
+	// Selector works on:
+	// https://github.com/notifications (Grouped by date)
+	// https://github.com/notifications (Grouped by repo)
+	// https://github.com/notifications?query=reason%3Acomment (which is an unsaved filter)
+	select('.js-check-all-container .js-bulk-action-toasts ~ div .Box-header')!.append(
+		<button className="btn btn-sm rgh-open-notifications-button" type="button">
+			<LinkExternalIcon className="mr-1"/>Open all unread
+		</button>
+	);
 }
 
 function update(): void {
-	const unreadCount = select.all(unreadNotificationsClass).length;
-	if (unreadCount === 0) {
-		return;
+	if (getUnreadNotifications().length > 0) {
+		addOpenAllButton();
+		addOpenReposButton();
 	}
-
-	addOpenAllButton();
-	addOpenReposButton();
 }
 
 function init(): void {
-	document.addEventListener('refined-github:mark-unread:notifications-added', update);
-	delegate('.rgh-open-notifications-button', 'click', openNotifications);
+	delegate(document, '.rgh-open-notifications-button', 'click', openNotifications);
 	update();
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Open all your notifications at once.',
-	screenshot: 'https://user-images.githubusercontent.com/1402241/31700005-1b3be428-b38c-11e7-90a6-8f572968993b.png',
+void features.add(__filebasename, {
 	include: [
-		features.isNotifications
+		pageDetect.isNotifications
 	],
-	load: features.onAjaxedPages,
 	init
 });

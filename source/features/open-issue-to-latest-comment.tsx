@@ -1,19 +1,36 @@
+import React from 'dom-chef';
 import select from 'select-dom';
-import features from '../libs/features';
+import onetime from 'onetime';
+import {observe} from 'selector-observer';
+import * as pageDetect from 'github-url-detection';
+
+import features from '.';
+import {wrapAll} from '../helpers/dom-utils';
 
 function init(): void {
-	for (const link of select.all<HTMLAnchorElement>('.js-issue-row a[aria-label*="comment"], .js-pinned-issue-list-item a[aria-label*="comment"]')) {
+	for (const link of select.all('.js-issue-row a[aria-label*="comment"], .js-pinned-issue-list-item a[aria-label*="comment"]')) {
 		link.hash = '#partial-timeline';
 	}
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Links the comments icon to the latest comment.',
-	screenshot: 'https://user-images.githubusercontent.com/14323370/57962709-7019de00-78e8-11e9-8398-7e617ba7a96f.png',
+function initDashboard(): void {
+	observe('.js-recent-activity-container :not(a) > div > .octicon-comment', {
+		add(icon) {
+			const url = icon.closest('li')!.querySelector('a')!.pathname + '#partial-timeline';
+			icon.parentElement!.classList.remove('col-1'); // Also fix extra space added by GitHub #3174
+			wrapAll([icon, icon.nextSibling!], <a className="muted-link" href={url}/>);
+		}
+	});
+}
+
+void features.add(__filebasename, {
 	include: [
-		features.isDiscussionList
+		pageDetect.isConversationList
 	],
-	load: features.onAjaxedPages,
 	init
+}, {
+	include: [
+		pageDetect.isDashboard
+	],
+	init: onetime(initDashboard)
 });

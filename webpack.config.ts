@@ -1,86 +1,101 @@
 /// <reference types="./source/globals" />
 
 import path from 'path';
-import {readdirSync, readFileSync} from 'fs';
-import webpack from 'webpack';
+import {readFileSync} from 'fs';
+
+import regexJoin from 'regex-join';
 import SizePlugin from 'size-plugin';
+import decamelize from 'decamelize';
 import TerserPlugin from 'terser-webpack-plugin';
+import {ESBuildPlugin} from 'esbuild-loader';
 import CopyWebpackPlugin from 'copy-webpack-plugin';
 import MiniCssExtractPlugin from 'mini-css-extract-plugin';
-import ForkTsCheckerWebpackPlugin from 'fork-ts-checker-webpack-plugin';
+import webpack, {Configuration} from 'webpack';
+import {parse as parseMarkdown} from 'markdown-wasm/dist/markdown.node';
 
-function parseFeatureDetails(name: string): FeatureInfo {
-	const content = readFileSync(`source/features/${name}.tsx`, {encoding: 'utf-8'});
-	const fields = ['disabled', 'description', 'screenshot'] as const;
+let isWatching = false;
 
-	const feature: Partial<FeatureInfo> = {name};
-	for (const field of fields) {
-		const [, value]: string[] | [] = new RegExp(`\n\t${field}: '([^\\n]+)'`).exec(content) || [];
-		if (value) {
-			const validValue = value.trim().replace(/\\'/g, '’'); // Catch trailing spaces and incorrect apostrophes
-			if (value !== validValue) {
-				throw new Error(`
-Invalid characters found in \`${name}\`. Apply this patch:
+function parseFeatureDetails(readmeContent: string, id: FeatureID): FeatureMeta {
+	const lineRegex = regexJoin(/^/, `- [](# "${id}")`, /(?: 🔥)? (.+)$/m);
+	const lineMatch = lineRegex.exec(readmeContent);
+	if (lineMatch) {
+		const urls: string[] = [];
 
-- ${field}: '${value}'
-+ ${field}: '${validValue}'
-`);
-			}
-
-			feature[field] = value.replace(/\\\\/g, '\\');
-		} else if (field === 'description') {
-			throw new Error(`Description wasn't found in the \`${name}\` feature`);
-		}
+		return {
+			id,
+			description: parseMarkdown(lineMatch[1].replace(/\[(.+?)]\((.+?)\)/g, (_match, title, url) => {
+				urls.push(url);
+				return title;
+			})),
+			screenshot: urls.find(url => /\.(png|gif)$/i.test(url))
+		};
 	}
 
-	return feature as FeatureInfo;
+	// Feature might be highlighted in the readme
+	const imageRegex = regexJoin(`<p><a title="${id}"></a> `, /(.+?)\n\t+<p><img src="(.+?)">/);
+	const imageMatch = imageRegex.exec(readmeContent);
+	if (imageMatch) {
+		return {
+			id,
+			description: parseMarkdown(imageMatch[1] + '.'),
+			screenshot: imageMatch[2]
+		};
+	}
+
+	const error = `
+
+	❌ Feature \`${id}\` needs a description in readme.md. Please refer to the style guide there.
+
+	`;
+	if (isWatching) {
+		console.error(error);
+		return {} as any;
+	}
+
+	throw new Error(error);
 }
 
-function getFeatures(): string[] {
-	return readdirSync(path.join(__dirname, 'source/features'))
-		.filter(filename => filename.endsWith('.tsx'))
-		.map(filename => filename.replace('.tsx', ''));
+function getFeatures(): FeatureID[] {
+	return Array.from(
+		readFileSync(path.join(__dirname, 'source/refined-github.ts'), 'utf-8').matchAll(/^import '\.\/features\/([^.]+)';/gm),
+		match => match[1] as FeatureID
+	).sort().filter(id => !id.startsWith('rgh-'));
 }
 
-module.exports = (_env: string, argv: Record<string, boolean | number | string>): webpack.Configuration => ({
+const config: Configuration = {
 	devtool: 'source-map',
 	stats: {
 		all: false,
-		errors: true,
-		builtAt: true
+		errors: true
 	},
-	entry: {
-		content: './source/content',
-		background: './source/background',
-		options: './source/options',
-		'resolve-conflicts': './source/resolve-conflicts'
-	},
+	entry: Object.fromEntries([
+		'refined-github',
+		'background',
+		'options',
+		'resolve-conflicts'
+	].map(name => [name, `./source/${name}`])),
 	output: {
-		path: path.join(__dirname, 'distribution'),
-		filename: '[name].js'
+		path: path.resolve('distribution/build')
 	},
 	module: {
 		rules: [
 			{
-				test: /\.tsx?$/,
-				use: [
-					{
-						loader: 'ts-loader',
-						query: {
-							compilerOptions: {
-								// Enables ModuleConcatenation. It must be in here to avoid conflict with ts-node
-								module: 'es2015',
-
-								// With this, TS will error but the file will still be generated (on watch only)
-								noEmitOnError: argv.watch === false
-							},
-
-							// Make compilation faster with `fork-ts-checker-webpack-plugin`
-							transpileOnly: true
-						}
+				test: /octicons-react\//,
+				loader: 'string-replace-loader',
+				options: {
+					search: /(\w+)Icon\.defaultProps = {\n\s+className: 'octicon'/g,
+					replace: (match: string, name: string) => {
+						return match.replace('octicon', 'octicon octicon-' + decamelize(name, '-'));
 					}
-				],
-				exclude: /node_modules/
+				}
+			},
+			{
+				test: /\.tsx?$/,
+				loader: 'esbuild-loader',
+				options: {
+					loader: 'tsx',
+					target: 'es2020'
+				}
 			},
 			{
 				test: /\.css$/,
@@ -92,44 +107,39 @@ module.exports = (_env: string, argv: Record<string, boolean | number | string>)
 		]
 	},
 	plugins: [
-		new ForkTsCheckerWebpackPlugin(),
+		new ESBuildPlugin(),
 		new webpack.DefinePlugin({
 			// Passing `true` as the second argument makes these values dynamic — so every file change will update their value.
-			// @ts-ignore
-			__featuresList__: webpack.DefinePlugin.runtimeValue(() => {
-				return JSON.stringify(getFeatures());
-			}, true),
-			// @ts-ignore
-			__featuresInfo__: webpack.DefinePlugin.runtimeValue(() => {
-				return JSON.stringify(getFeatures().map(parseFeatureDetails));
-			}, true),
+			__featuresOptionDefaults__: webpack.DefinePlugin.runtimeValue(
+				() => JSON.stringify(Object.fromEntries(getFeatures().map(id => [`feature:${id}`, true]))),
+				true
+			),
 
-			// @ts-ignore
-			__featureName__: webpack.DefinePlugin.runtimeValue(({module}) => {
-				return JSON.stringify(path.basename(module.resource, '.tsx'));
-			})
+			__featuresMeta__: webpack.DefinePlugin.runtimeValue(
+				() => {
+					const readmeContent = readFileSync(path.join(__dirname, 'readme.md'), 'utf-8');
+					return JSON.stringify(getFeatures().map(id => parseFeatureDetails(readmeContent, id)));
+				},
+				true
+			),
+
+			__filebasename: webpack.DefinePlugin.runtimeValue(
+				// @ts-expect-error
+				info => JSON.stringify(path.parse(info.module.resource).name)
+			)
 		}),
-		new MiniCssExtractPlugin({
-			filename: '[name].css'
+		new MiniCssExtractPlugin(),
+		new CopyWebpackPlugin({
+			patterns: [{
+				from: require.resolve('webextension-polyfill')
+			}]
 		}),
-		new SizePlugin(),
-		new CopyWebpackPlugin([
-			{
-				from: '*',
-				context: 'source',
-				ignore: [
-					'*.js',
-					'*.ts',
-					'*.tsx',
-					'*.css'
-				]
-			},
-			{
-				from: 'node_modules/webextension-polyfill/dist/browser-polyfill.min.js'
-			}
-		])
+		new SizePlugin({writeFile: false})
 	],
 	resolve: {
+		alias: {
+			react: 'dom-chef'
+		},
 		extensions: [
 			'.tsx',
 			'.ts',
@@ -137,22 +147,26 @@ module.exports = (_env: string, argv: Record<string, boolean | number | string>)
 		]
 	},
 	optimization: {
-		// Without this, function names will be garbled and enableFeature won't work
-		concatenateModules: true,
-
-		// Automatically enabled on production; keeps it somewhat readable for AMO reviewers
+		// Keeps it somewhat readable for AMO reviewers
 		minimizer: [
 			new TerserPlugin({
 				parallel: true,
+				exclude: 'browser-polyfill.min.js', // #3451
 				terserOptions: {
 					mangle: false,
-					compress: false,
 					output: {
 						beautify: true,
-						indent_level: 2 // eslint-disable-line @typescript-eslint/camelcase
+						indent_level: 2
 					}
 				}
 			})
 		]
 	}
-});
+};
+
+const webpackSetup = (_: string, options: webpack.WebpackOptionsNormalized): Configuration => {
+	isWatching = Boolean(options.watch);
+	return config;
+};
+
+export default webpackSetup;

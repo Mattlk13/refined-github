@@ -1,5 +1,7 @@
 import select from 'select-dom';
-import features from '../libs/features';
+import * as pageDetect from 'github-url-detection';
+
+import features from '.';
 
 function init(): void {
 	const CIDetailsLinks = select.all('a.status-actions');
@@ -9,13 +11,9 @@ function init(): void {
 	}
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Opens the Checks "details" link in a new tab.',
-	screenshot: false,
+void features.add(__filebasename, {
 	include: [
-		features.isPR
+		pageDetect.isPR
 	],
-	load: features.onAjaxedPages,
 	init
 });

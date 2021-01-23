@@ -1,9 +1,35 @@
-import select from 'select-dom';
 import React from 'dom-chef';
-import features from '../libs/features';
-import * as icons from '../libs/icons';
-import {getRepoURL} from '../libs/utils';
-import {appendBefore} from '../libs/dom-utils';
+import select from 'select-dom';
+import elementReady from 'element-ready';
+import * as pageDetect from 'github-url-detection';
+
+import features from '.';
+import * as api from '../github-helpers/api';
+import GitHubURL from '../github-helpers/github-url';
+import addNotice from '../github-widgets/notice-bar';
+import {appendBefore} from '../helpers/dom-utils';
+import {buildRepoURL, isPermalink} from '../github-helpers';
+
+async function updateURLtoDatedSha(url: GitHubURL, date: string): Promise<void> {
+	const {repository} = await api.v4(`
+		repository() {
+			ref(qualifiedName: "${url.branch}") {
+				target {
+					... on Commit {
+						history(first: 1, until: "${date}") {
+							nodes {
+								oid
+							}
+						}
+					}
+				}
+			}
+		}
+	`);
+
+	const [{oid}] = repository.ref.target.history.nodes;
+	select('a.rgh-link-date')!.pathname = url.assign({branch: oid}).pathname;
+}
 
 function addInlineLinks(comment: HTMLElement, timestamp: string): void {
 	const links = select.all<HTMLAnchorElement>(`
@@ -14,20 +40,13 @@ function addInlineLinks(comment: HTMLElement, timestamp: string): void {
 	for (const link of links) {
 		const linkParts = link.pathname.split('/');
 		// Skip permalinks
-		if (/^[0-9a-f]{40}$/.test(linkParts[4])) {
+		if (/^[\da-f]{40}$/.test(linkParts[4])) {
 			continue;
 		}
 
-		linkParts[4] = `HEAD@{${timestamp}}`; // Change git ref
-		link.after(
-			' ',
-			<a
-				href={linkParts.join('/') + link.hash}
-				className="muted-link tooltipped tooltipped-n"
-				aria-label="Visit as permalink">
-				{icons.clock()}
-			</a>
-		);
+		const searchParameters = new URLSearchParams(link.search);
+		searchParameters.set('rgh-link-date', timestamp);
+		link.search = String(searchParameters);
 	}
 }
 
@@ -41,23 +60,63 @@ function addDropdownLink(comment: HTMLElement, timestamp: string): void {
 
 	appendBefore(dropdown, '.dropdown-divider',
 		<>
-			<div className="dropdown-divider" />
+			<div className="dropdown-divider"/>
 			<a
-				href={`/${getRepoURL()}/tree/HEAD@{${timestamp}}`}
+				href={buildRepoURL(`tree/HEAD@{${timestamp}}`)}
 				className="dropdown-item btn-link"
 				role="menuitem"
-				title="Browse repository like it appeared on this day">
+				title="Browse repository like it appeared on this day"
+			>
 				View repo at this time
 			</a>
 		</>
 	);
 }
 
+async function showTimemachineBar(): Promise<void | false> {
+	const url = new URL(location.href); // This can't be replaced with `GitHubURL` because `getCurrentBranch` throws on 404s
+	const date = url.searchParams.get('rgh-link-date')!;
+
+	// Drop parameter from current page after using it
+	url.searchParams.delete('rgh-link-date');
+	history.replaceState(history.state, document.title, url.href);
+
+	if (pageDetect.is404()) {
+		const pathnameParts = url.pathname.split('/');
+		pathnameParts[4] = `HEAD@{${date}}`;
+		url.pathname = pathnameParts.join('/');
+	} else {
+		// This feature only makes sense if the URL points to a non-permalink
+		if (await isPermalink()) {
+			return false;
+		}
+
+		const lastCommitDate = await elementReady([
+			'.repository-content .Box.Box--condensed relative-time',
+			'[itemprop="dateModified"] relative-time' // "Repository refresh" layout
+		].join(), {waitForChildren: false});
+		if (date > lastCommitDate?.attributes.datetime.value!) {
+			return false;
+		}
+
+		const parsedUrl = new GitHubURL(location.href);
+		// Due to GitHub’s bug of supporting branches with slashes: #2901
+		void updateURLtoDatedSha(parsedUrl, date); // Don't await it, since the link will usually work without the update
+
+		parsedUrl.branch = `${parsedUrl.branch}@{${date}}`;
+		url.pathname = parsedUrl.pathname;
+	}
+
+	addNotice(
+		<>You can also <a className="rgh-link-date" href={String(url)}>view this object as it appeared at the time of the comment</a> (<relative-time datetime={date}/>)</>
+	);
+}
+
 function init(): void {
 	// PR reviews' main content has nested `.timeline-comment`, but the deepest one doesn't have `relative-time`. These are filtered out with `:not([id^="pullrequestreview"])`
 	const comments = select.all(`
-		:not(.js-new-comment-form):not([id^="pullrequestreview"]) > .timeline-comment:not(.rgh-time-machine-links),
-		.review-comment:not(.rgh-time-machine-links)
+		:not(.js-new-comment-form):not(#issuecomment-new):not([id^="pullrequestreview"]) > .timeline-comment:not(.rgh-time-machine-links),
+		.review-comment > .previewable-edit:not(.is-pending):not(.rgh-time-machine-links)
 	`);
 
 	for (const comment of comments) {
@@ -69,13 +128,20 @@ function init(): void {
 	}
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Adds links to browse the repository and linked files at the time of each comment.',
-	screenshot: 'https://user-images.githubusercontent.com/1402241/56450896-68076680-635b-11e9-8b24-ebd11cc4e655.png',
+void features.add(__filebasename, {
 	include: [
-		features.hasComments
+		pageDetect.hasComments
 	],
-	load: features.onNewComments,
 	init
+}, {
+	include: [
+		pageDetect.is404,
+		pageDetect.isSingleFile,
+		pageDetect.isRepoTree
+	],
+	exclude: [
+		() => !new URLSearchParams(location.search).has('rgh-link-date')
+	],
+	awaitDomReady: false,
+	init: showTimemachineBar
 });

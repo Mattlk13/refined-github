@@ -1,12 +1,13 @@
 import React from 'dom-chef';
 import select from 'select-dom';
 import onetime from 'onetime';
-import insertText from 'insert-text-textarea';
-import delegate, {DelegateEvent} from 'delegate-it';
-import features from '../libs/features';
-import {observeOneMutation} from '../libs/simplified-element-observer';
-import {reportBug} from '../libs/utils';
-import oneEvent from '../libs/one-event';
+import delegate from 'delegate-it';
+import oneEvent from 'one-event';
+import oneMutation from 'one-mutation';
+import * as pageDetect from 'github-url-detection';
+import * as textFieldEdit from 'text-field-edit';
+
+import features from '.';
 
 const pendingSelector = '.timeline-comment-label.is-pending';
 
@@ -24,9 +25,9 @@ function updateUI(): void {
 	}
 }
 
-async function handleReviewSubmission(event: DelegateEvent): Promise<void> {
+async function handleReviewSubmission(event: delegate.Event): Promise<void> {
 	const container = event.delegateTarget.closest('.line-comments')!;
-	await observeOneMutation(container);
+	await oneMutation(container, {childList: true, subtree: true}); // TODO: subtree might not be necessary anywhere on the page
 	if (select.exists(pendingSelector, container)) {
 		updateUI();
 	}
@@ -46,15 +47,16 @@ async function getNewCommentField(commentContainer: Element, lineBeingCommentedO
 		(isRightSide ? select.last : select)('.js-add-line-comment', lineBeingCommentedOn)!.click();
 	}
 
-	// Hide comment box
+	// TODO: this is wrong. `target` is a button. Maybe instead of listening to `focusin` it should just use select or elementReady
 	return (await listener).target as HTMLTextAreaElement;
 }
 
-async function handleSubmitSingle(event: DelegateEvent): Promise<void> {
+async function handleSubmitSingle(event: delegate.Event): Promise<void> {
 	const commentContainer = event.delegateTarget.closest('.js-comment')!;
-	const commentText = select<HTMLTextAreaElement>('[name="pull_request_review_comment[body]"]', commentContainer)!.value;
+	const commentText = select('textarea[name="pull_request_review_comment[body]"]', commentContainer)!.value;
 	if (!commentText) {
-		reportBug(__featureName__, 'comment not found');
+		alert('Error: Comment not found and not submitted. More info in the console.');
+		features.error(__filebasename, 'Comment not found');
 		return;
 	}
 
@@ -63,56 +65,52 @@ async function handleSubmitSingle(event: DelegateEvent): Promise<void> {
 
 	// Use nearby comment box
 	const comment = await getNewCommentField(commentContainer, lineBeingCommentedOn);
-	const submitButton = select<HTMLButtonElement>('[name="single_comment"]', comment.form!)!;
-	const commentForm = comment.closest('.inline-comment-form-container') as HTMLElement;
+	const submitButton = select('button[name="single_comment"]', comment.form!)!;
+	const commentForm = comment.closest<HTMLElement>('.inline-comment-form-container')!;
 
 	// Copy comment to new comment box
-	insertText(comment.form!.elements['comment[body]'] as HTMLTextAreaElement, commentText);
+	const newComment = select('textarea[name="comment[body]"]', commentForm)!;
+	textFieldEdit.insert(newComment, commentText);
 
 	// Safely try comment deletion
 	try {
-		console.log(commentForm);
 		commentForm.hidden = true;
 
 		// Delete comment without asking confirmation
-		const deleteLink = select<HTMLButtonElement>('[aria-label="Delete comment"]', commentContainer)!;
+		const deleteLink = select('button[aria-label="Delete comment"]', commentContainer)!;
 		deleteLink.removeAttribute('data-confirm');
 		deleteLink.click();
 
 		// Wait for the comment to be removed
-		await observeOneMutation(lineBeingCommentedOn.parentElement!);
+		await oneMutation(lineBeingCommentedOn.parentElement!, {childList: true, subtree: true});
 
 		// Enable form and submit new comment
 		submitButton.disabled = false;
 		submitButton.click();
 
 		// Wait for the comment to be added
-		await observeOneMutation(lineBeingCommentedOn.parentElement!);
+		await oneMutation(lineBeingCommentedOn.parentElement!, {childList: true, subtree: true});
 		commentForm.hidden = false;
-	} catch (error) {
+	} catch (error: unknown) {
 		commentForm.hidden = false;
 
 		// Place comment in console to allow recovery
+		alert('There was an error sending the comment. More info in the console.');
 		console.log('You were trying to sending this comment:');
 		console.log(commentText);
-		reportBug(__featureName__, 'there was an error sending the comment');
-		console.error(error);
+		features.error(__filebasename, error);
 	}
 }
 
 function init(): void {
-	delegate('#files', '[action$="/review_comment/create"]', 'submit', handleReviewSubmission);
-	delegate('#files', '.rgh-submit-single', 'click', handleSubmitSingle);
+	delegate(document, '#files [action$="/review_comment/create"]', 'submit', handleReviewSubmission);
+	delegate(document, '.rgh-submit-single', 'click', handleSubmitSingle);
 	updateUI();
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Adds a button to submit a single PR comment if you mistakenly started a new review.',
-	screenshot: 'https://user-images.githubusercontent.com/1402241/60331761-f6394200-99c7-11e9-81c2-c671cba9602a.gif',
+void features.add(__filebasename, {
 	include: [
-		features.isPRFiles
+		pageDetect.isPRFiles
 	],
-	load: features.onAjaxedPages,
 	init
 });

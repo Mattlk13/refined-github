@@ -1,11 +1,13 @@
 import React from 'dom-chef';
 import select from 'select-dom';
-import delegate, {DelegateEvent} from 'delegate-it';
-import features from '../libs/features';
-import * as api from '../libs/api';
-import * as icons from '../libs/icons';
-import observeEl from '../libs/simplified-element-observer';
-import {getRepoURL, getDiscussionNumber} from '../libs/utils';
+import delegate from 'delegate-it';
+import {AlertIcon} from '@primer/octicons-react';
+import * as pageDetect from 'github-url-detection';
+
+import features from '.';
+import * as api from '../github-helpers/api';
+import observeElement from '../helpers/simplified-element-observer';
+import {getConversationNumber} from '../github-helpers';
 
 let observer: MutationObserver;
 
@@ -16,8 +18,8 @@ function getBranches(): {base: string; head: string} {
 	};
 }
 
-export async function mergeBranches(): Promise<AnyObject> {
-	return api.v3(`repos/${getRepoURL()}/pulls/${getDiscussionNumber()}/update-branch`, {
+async function mergeBranches(): Promise<AnyObject> {
+	return api.v3(`pulls/${getConversationNumber()!}/update-branch`, {
 		method: 'PUT',
 		headers: {
 			Accept: 'application/vnd.github.lydian-preview+json'
@@ -26,38 +28,33 @@ export async function mergeBranches(): Promise<AnyObject> {
 	});
 }
 
-async function handler(event: DelegateEvent): Promise<void> {
-	const button = event.target as HTMLButtonElement;
-	button.disabled = true;
-	button.textContent = 'Updating branch…';
-	button.classList.remove('tooltipped');
+async function handler({delegateTarget}: delegate.Event): Promise<void> {
+	const {base, head} = getBranches();
+	if (!confirm(`Merge the ${base} branch into ${head}?`)) {
+		return;
+	}
+
+	const statusMeta = delegateTarget.parentElement!;
+	statusMeta.textContent = 'Updating branch…';
 	observer.disconnect();
 
 	const response = await mergeBranches();
 	if (response.ok) {
-		button.remove();
-	} else if (response.message && response.message.toLowerCase().startsWith('merge conflict')) {
-		// Only shown on Draft PRs
-		button.replaceWith(
-			<a href={location.pathname + '/conflicts'} className="btn float-right">{icons.alert()} Resolve conflicts</a>
-		);
+		statusMeta.remove();
 	} else {
-		button.textContent = response.message || 'Error';
-		button.prepend(icons.alert(), ' ');
+		statusMeta.textContent = response.message ?? 'Error';
+		statusMeta.prepend(<AlertIcon/>, ' ');
 		throw new api.RefinedGitHubAPIError('update-pr-from-base-branch: ' + JSON.stringify(response));
 	}
 }
 
-function createButton(base: string, head: string): HTMLElement {
-	return (
-		<button type="button" className="btn float-right rgh-update-pr-from-master tooltipped tooltipped-n" aria-label={`Merge the ${base} branch into ${head}`}>
-			Update branch
-		</button>
-	);
+function createButton(): HTMLElement {
+	const button = <button type="button" className="btn-link">update the base branch</button>;
+	return <span className="status-meta rgh-update-pr-from-base-branch">You can {button}.</span>;
 }
 
 async function addButton(): Promise<void> {
-	if (select.exists('.rgh-update-pr-from-master, .branch-action-btn > .btn')) {
+	if (select.exists('.rgh-update-pr-from-base-branch, .branch-action-btn:not([action$="ready_for_review"]) > .btn')) {
 		return;
 	}
 
@@ -69,47 +66,46 @@ async function addButton(): Promise<void> {
 
 	const {base, head} = getBranches();
 
-	// Draft PRs already have this info on the page
-	const [outOfDateContainer] = select.all('.completeness-indicator-problem + .status-heading')
-		.filter(title => (title.textContent!).includes('out-of-date'));
-	if (outOfDateContainer) {
-		outOfDateContainer.append(createButton(base, head));
+	if (head === 'unknown repository') {
 		return;
 	}
 
-	const {status} = await api.v3(`repos/${getRepoURL()}/compare/${base}...${head}`);
+	// Draft PRs already have this info on the page
+	const outOfDateContainer = select.all('.completeness-indicator-problem + .status-heading')
+		.find(title => title.textContent!.includes('out-of-date'));
+	if (outOfDateContainer) {
+		const meta = outOfDateContainer.nextElementSibling!;
+		meta.after(' ', createButton());
+		return;
+	}
+
+	const {status} = await api.v3(`compare/${base}...${head}`);
 	if (status !== 'diverged') {
 		return;
 	}
 
-	select('.mergeability-details .merge-message')!.append(createButton(base, head));
+	for (const meta of select.all('.mergeability-details > :not(.js-details-container) .status-meta')) {
+		meta.after(' ', createButton());
+	}
 }
 
-function init(): void | false {
-	const mergeButton = select<HTMLButtonElement>('[data-details-container=".js-merge-pr"]');
-	// Only if user can merge it
-	if (!mergeButton) {
+async function init(): Promise<void | false> {
+	await api.expectToken();
+
+	// This link does the same thing as this feature: Updates the head branch from the base
+	const hasResolveConflictsLink = select.exists('.js-merge-pr a[href$="/conflicts"]');
+	const currentUserCanPush = select.exists('.merge-pr > .text-gray:first-child');
+	if (!currentUserCanPush || hasResolveConflictsLink) {
 		return false;
 	}
 
-	// Button is disabled when:
-	// - There are conflicts (there's already a native "Resolve conflicts" button)
-	// - Draft PR (show the button anyway)
-	if (mergeButton.disabled && !select.exists('[action$="ready_for_review"]')) {
-		return false;
-	}
-
-	observer = observeEl('.discussion-timeline-actions', addButton)!;
-	delegate('.discussion-timeline-actions', '.rgh-update-pr-from-master', 'click', handler);
+	observer = observeElement('.discussion-timeline-actions', addButton)!;
+	delegate(document, '.rgh-update-pr-from-base-branch button', 'click', handler);
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Adds button to update a PR from the base branch to ensure it builds correctly before merging the PR itself.',
-	screenshot: 'https://user-images.githubusercontent.com/1402241/57941992-f2170080-7902-11e9-8f8a-594aad983559.png',
+void features.add(__filebasename, {
 	include: [
-		features.isPRConversation
+		pageDetect.isPRConversation
 	],
-	load: features.onAjaxedPages,
 	init
 });

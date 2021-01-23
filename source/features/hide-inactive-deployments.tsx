@@ -1,24 +1,27 @@
 import select from 'select-dom';
-import features from '../libs/features';
+import * as pageDetect from 'github-url-detection';
+
+import features from '.';
+import onNewComments from '../github-events/on-new-comments';
 
 function init(): void {
-	const deployments = select.all('.discussion-item .deployment-meta');
+	// Selects all the deployments first so that we can leave the last one on the page
+	const deployments = select.all('.js-socket-channel[data-url$="/pull_requests/events/deployed"]');
 	deployments.pop(); // Don't hide the last deployment, even if it is inactive
 
 	for (const deployment of deployments) {
-		if (select.exists('.is-inactive', deployment)) {
-			(deployment.closest('.discussion-item') as HTMLElement).hidden = true;
+		if (select.exists('[title="Deployment Status Label: Inactive"]', deployment)) {
+			deployment.remove();
 		}
 	}
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Hides inactive deployments in PRs.',
-	screenshot: 'https://github.com/sindresorhus/refined-github/issues/1144',
+void features.add(__filebasename, {
 	include: [
-		features.isPRConversation
+		pageDetect.isPRConversation
 	],
-	load: features.onNewComments,
+	additionalListeners: [
+		onNewComments
+	],
 	init
 });

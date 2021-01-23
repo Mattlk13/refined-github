@@ -1,24 +1,19 @@
-import select from 'select-dom';
-import features from '../libs/features';
-import {getUsername} from '../libs/utils';
+import React from 'dom-chef';
+import onetime from 'onetime';
+import {isEnterprise} from 'github-url-detection';
 
-function init(): false | void {
-	const menuItem = select(`#user-links a.dropdown-item[href="/${getUsername()}"]`);
+import features from '.';
+import {getUsername} from '../github-helpers';
 
-	if (menuItem) {
-		menuItem.setAttribute('data-hotkey', 'g m');
-	} else {
-		return false;
-	}
+function init(): void {
+	const profileLink = (isEnterprise() ? location.origin : 'https://github.com') + '/' + getUsername();
+	document.body.append(<a hidden data-hotkey="g m" href={profileLink}/>);
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Adds a keyboard shortcut to visit your own profile: `g` `m`.',
-	screenshot: false,
-	load: features.onDomReady,
+void features.add(__filebasename, {
 	shortcuts: {
 		'g m': 'Go to Profile'
 	},
-	init
+	awaitDomReady: false,
+	init: onetime(init)
 });

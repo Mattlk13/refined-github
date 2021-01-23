@@ -1,7 +1,9 @@
 import React from 'dom-chef';
 import select from 'select-dom';
-import features from '../libs/features';
-import {getCleanPathname} from '../libs/utils';
+import * as pageDetect from 'github-url-detection';
+
+import features from '.';
+import {getCleanPathname} from '../github-helpers';
 
 function buildUrl(queryField: string): URL {
 	const url = new URL('/search', location.href);
@@ -12,25 +14,17 @@ function buildUrl(queryField: string): URL {
 	return url;
 }
 
-function init(): false | void {
-	const showcaseTitle = select('.js-pinned-items-reorder-container .text-normal')!;
-	if (!showcaseTitle) {
-		return false;
-	}
-
-	showcaseTitle.firstChild!.after(
+function init(): void {
+	// Showcase title
+	select('.js-pinned-items-reorder-container .text-normal')!.firstChild!.after(
 		' / ',
 		<a href={String(buildUrl('stars'))}>Top repositories</a>
 	);
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Adds a link to the user’s most starred repositories.',
-	screenshot: 'https://user-images.githubusercontent.com/1402241/48474026-43e3ae80-e82c-11e8-93de-159ad4c6f283.png',
+void features.add(__filebasename, {
 	include: [
-		features.isUserProfile
+		pageDetect.isUserProfileMainTab
 	],
-	load: features.onAjaxedPages,
 	init
 });

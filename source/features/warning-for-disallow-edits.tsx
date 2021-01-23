@@ -1,43 +1,46 @@
 import './warning-for-disallow-edits.css';
 import React from 'dom-chef';
 import select from 'select-dom';
-import features from '../libs/features';
+import onetime from 'onetime';
+import delegate from 'delegate-it';
+import * as pageDetect from 'github-url-detection';
 
-function init(): void {
-	const checkbox = select<HTMLInputElement>('[name="collab_privs"]');
-	if (!checkbox) {
-		return;
+import features from '.';
+
+const getWarning = onetime(() => (
+	<div className="flash flash-error mt-3 rgh-warning-for-disallow-edits">
+		<strong>Note:</strong> Maintainers may require changes. It’s easier and faster to allow them to make direct changes before merging.
+	</div>
+));
+
+function update(checkbox: HTMLInputElement): void {
+	if (checkbox.checked) {
+		getWarning().remove();
+	} else {
+		checkbox
+			.closest('.timeline-comment, .discussion-sidebar-item > .d-inline-flex')!
+			.after(getWarning());
 	}
-
-	const warning = (
-		<div className="flash flash-error mt-3 rgh-warning-for-disallow-edits">
-			<strong>Note:</strong> Maintainers may require changes. It’s easier and faster to allow them to make direct changes before merging.
-		</div>
-	);
-	const update = (): void => {
-		if (checkbox.checked) {
-			warning.remove();
-		} else {
-			// Select every time because the sidebar content may be replaced
-			select(`
-				.new-pr-form .timeline-comment,
-				#partial-discussion-sidebar .js-collab-form + .js-dropdown-details
-			`)!.after(warning);
-		}
-	};
-
-	update(); // The sidebar checkbox may already be un-checked
-	checkbox.addEventListener('change', update);
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Warns you when unchecking `Allow edits from maintainers`, as it’s maintainer-hostile.',
-	screenshot: 'https://user-images.githubusercontent.com/1402241/53151888-24101380-35ef-11e9-8d30-d6315ad97325.gif',
+function toggleHandler(event: delegate.Event<UIEvent, HTMLInputElement>): void {
+	update(event.delegateTarget);
+}
+
+function init(): void | false {
+	const checkbox = select('input[name="collab_privs"]');
+	if (!checkbox) {
+		return false;
+	}
+
+	update(checkbox); // The sidebar checkbox may already be un-checked
+	delegate(document, '[name="collab_privs"]', 'change', toggleHandler);
+}
+
+void features.add(__filebasename, {
 	include: [
-		features.isCompare,
-		features.isPRConversation
+		pageDetect.isCompare,
+		pageDetect.isPRConversation
 	],
-	load: features.onAjaxedPages,
 	init
 });

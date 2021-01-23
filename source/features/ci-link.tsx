@@ -1,43 +1,42 @@
 import './ci-link.css';
+import select from 'select-dom';
 import onetime from 'onetime';
-import features from '../libs/features';
-import {appendBefore} from '../libs/dom-utils';
-import {getRepoURL, getRepoBranch} from '../libs/utils';
-import fetchDom from '../libs/fetch-dom';
+import * as pageDetect from 'github-url-detection';
 
-export const fetchCIStatus = onetime(async () => {
-	const url = `/${getRepoURL()}/commits/${getRepoBranch() || ''}`;
-	const icon = await fetchDom<HTMLElement>(url, '.commit-build-statuses');
+import features from '.';
+import fetchDom from '../helpers/fetch-dom';
+import {buildRepoURL} from '../github-helpers';
 
-	if (!icon) {
-		return undefined;
-	}
-
-	icon.classList.add('rgh-ci-link');
-	return icon;
-});
+// Look for the CI icon in the latest 2 days of commits #2990
+const getIcon = onetime(async () => fetchDom(
+	buildRepoURL('commits'), [
+		'.commit-group:nth-of-type(-n+2) .commit-build-statuses', // Pre "Repository refresh" layout
+		'.TimelineItem--condensed:nth-of-type(-n+2) .commit-build-statuses'
+	].join()
+));
 
 async function init(): Promise<false | void> {
-	const icon = await fetchCIStatus();
+	const icon = await getIcon() as HTMLElement | undefined;
 	if (!icon) {
 		return false;
 	}
 
-	if (onetime.callCount(fetchCIStatus) > 1) {
+	icon.classList.add('rgh-ci-link');
+	if (onetime.callCount(getIcon) > 1) {
 		icon.style.animation = 'none';
 	}
 
 	// Append to title (aware of forks and private repos)
-	appendBefore('.pagehead h1', '.fork-flag', icon);
+	select('[itemprop="name"]')!.parentElement!.append(icon);
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Add build status and link to CI after the repo’s title.',
-	screenshot: 'https://user-images.githubusercontent.com/1402241/32562120-d65166e4-c4e8-11e7-90fb-cbaf36e2709f.png',
+void features.add(__filebasename, {
 	include: [
-		features.isRepo
+		pageDetect.isRepo
 	],
-	load: features.onAjaxedPages,
+	exclude: [
+		pageDetect.isEmptyRepo
+	],
+	awaitDomReady: false,
 	init
 });

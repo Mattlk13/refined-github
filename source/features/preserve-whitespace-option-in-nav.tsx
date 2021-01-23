@@ -1,25 +1,22 @@
 import select from 'select-dom';
-import features from '../libs/features';
+import * as pageDetect from 'github-url-detection';
 
-function init(): false | void {
-	if (new URLSearchParams(location.search).get('w') !== '1') {
-		return false;
-	}
+import features from '.';
 
-	for (const a of select.all<HTMLAnchorElement>('[data-hotkey="p"], [data-hotkey="n"]')) {
+function init(): void {
+	for (const a of select.all('a[data-hotkey="p"], a[data-hotkey="n"]')) {
 		const linkUrl = new URLSearchParams(a.search);
 		linkUrl.set('w', '1');
 		a.search = String(linkUrl);
 	}
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Preserves the "ignore whitespace" setting when navigating with Next/Previous in PR review mode.',
-	screenshot: false,
+void features.add(__filebasename, {
 	include: [
-		features.isRepo
+		pageDetect.isRepo
 	],
-	load: features.onAjaxedPages,
+	exclude: [
+		() => new URLSearchParams(location.search).get('w') !== '1'
+	],
 	init
 });

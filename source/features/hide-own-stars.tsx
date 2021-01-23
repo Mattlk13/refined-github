@@ -1,34 +1,25 @@
 import select from 'select-dom';
-import elementReady from 'element-ready';
-import features from '../libs/features';
-import {getUsername} from '../libs/utils';
+import onetime from 'onetime';
+import {observe} from 'selector-observer';
+import * as pageDetect from 'github-url-detection';
 
-const observer = new MutationObserver(([{addedNodes}]) => {
-	// Remove events from dashboard
-	for (const item of select.all('#dashboard .news .watch_started, #dashboard .news .fork')) {
-		if (select.exists(`a[href^="/${getUsername()}"]`, item)) {
-			item.style.display = 'none';
+import features from '.';
+import {getUsername} from '../github-helpers';
+
+function init(): void {
+	observe('#dashboard .news .watch_started, #dashboard .news .fork', {
+		constructor: HTMLElement,
+		add(item) {
+			if (select.exists(`a[href^="/${getUsername()}"]`, item)) {
+				item.style.display = 'none';
+			}
 		}
-	}
-
-	// Observe the new ajaxed-in containers
-	for (const node of addedNodes) {
-		if (node instanceof HTMLDivElement) {
-			observer.observe(node, {childList: true});
-		}
-	}
-});
-
-async function init(): Promise<void> {
-	observer.observe((await elementReady('#dashboard .news'))!, {childList: true});
+	});
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Hides "starred" events for your own repos on the newsfeed.',
-	screenshot: false,
+void features.add(__filebasename, {
 	include: [
-		features.isDashboard
+		pageDetect.isDashboard
 	],
-	init
+	init: onetime(init)
 });

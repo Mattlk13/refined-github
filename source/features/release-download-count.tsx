@@ -1,21 +1,22 @@
 import './release-download-count.css';
 import React from 'dom-chef';
 import select from 'select-dom';
-import features from '../libs/features';
-import * as api from '../libs/api';
-import * as icons from '../libs/icons';
-import {getRepoGQL} from '../libs/utils';
+import {DownloadIcon} from '@primer/octicons-react';
+import * as pageDetect from 'github-url-detection';
+import {abbreviateNumber} from 'js-abbreviation-number';
+
+import features from '.';
+import * as api from '../github-helpers/api';
 
 interface Asset {
 	name: string;
 	downloadCount: number;
 }
-interface Tag {
-	[key: string]: Asset[];
-}
+
+type Tag = Record<string, Asset[]>;
 async function getAssetsForTag(tags: string[]): Promise<Tag> {
 	const {repository} = await api.v4(`
-		repository(${getRepoGQL()}) {
+		repository() {
 			${tags.map(tag => `
 				${api.escapeKey(tag)}: release(tagName:"${tag}") {
 					releaseAssets(first: 100) {
@@ -25,28 +26,16 @@ async function getAssetsForTag(tags: string[]): Promise<Tag> {
 						}
 					}
 				}
-			`)}
+			`).join()}
 		}
 	`);
 
 	const assets: Tag = {};
 	for (const [tag, release] of Object.entries(repository)) {
-		assets[tag] = (release as any).releaseAssets.nodes;
+		assets[tag] = (release as AnyObject).releaseAssets.nodes;
 	}
 
 	return assets;
-}
-
-function prettyNumber(value: number): string {
-	let newValue = value;
-	const suffixes = ['', 'K', 'M', 'B', 'T'];
-	let suffixNum = 0;
-	while (newValue >= 1000) {
-		newValue /= 1000;
-		suffixNum++;
-	}
-
-	return `${Number(newValue.toPrecision(3))} ${suffixes[suffixNum]}`;
 }
 
 async function init(): Promise<void | false> {
@@ -69,7 +58,7 @@ async function init(): Promise<void | false> {
 		for (const assetName of select.all('.octicon-package ~ span', release)) {
 			// Match the asset in the DOM to the asset in the API response
 			for (const [index, {name, downloadCount}] of sortedDownloads.entries()) {
-				if (name === assetName.textContent) {
+				if (name === assetName.textContent && downloadCount > 0) {
 					const classes = 'rgh-release-download-count mr-2 text-gray' + (index === 0 ? ' text-bold' : '');
 					// Place next to asset size
 					assetName
@@ -77,7 +66,7 @@ async function init(): Promise<void | false> {
 						.querySelector('small')!
 						.before(
 							<small className={classes} title="Downloads">
-								{prettyNumber(downloadCount)} {icons.cloudDownload()}
+								{abbreviateNumber(downloadCount)} <DownloadIcon/>
 							</small>
 						);
 				}
@@ -86,13 +75,9 @@ async function init(): Promise<void | false> {
 	}
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Adds a download count next to release assets.',
-	screenshot: 'https://user-images.githubusercontent.com/14323370/58944460-e1aeb480-874f-11e9-8052-2d4dc794ecab.png',
+void features.add(__filebasename, {
 	include: [
-		features.isReleasesOrTags
+		pageDetect.isReleasesOrTags
 	],
-	load: features.onAjaxedPages,
 	init
 });

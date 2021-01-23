@@ -1,45 +1,58 @@
 import React from 'dom-chef';
 import select from 'select-dom';
-import features from '../libs/features';
-import * as icons from '../libs/icons';
-import getDefaultBranch from '../libs/get-default-branch';
+import {PencilIcon} from '@primer/octicons-react';
+import elementReady from 'element-ready';
+import * as pageDetect from 'github-url-detection';
+
+import features from '.';
+import GitHubURL from '../github-helpers/github-url';
+import {isPermalink} from '../github-helpers';
+import getDefaultBranch from '../github-helpers/get-default-branch';
 
 async function init(): Promise<void | false> {
-	const readmeHeader = select('#readme .Box-header h3');
+	const readmeHeader = await elementReady('#readme .Box-header h2');
 	if (!readmeHeader) {
 		return false;
 	}
 
-	// The button already exists on repos you can push to.
-	if (select.exists('a[aria-label="Edit this file"]')) {
-		return false;
+	const isPermalink_ = await isPermalink();
+	const filename = readmeHeader.textContent!.trim();
+	const fileLink = select<HTMLAnchorElement>(`.js-navigation-open[title="${filename}"]`)!;
+
+	const url = new GitHubURL(fileLink.href).assign({
+		route: 'edit'
+	});
+
+	if (isPermalink_) {
+		url.branch = await getDefaultBranch(); // Permalinks can't be edited
 	}
 
-	const isPermalink = /Tag|Tree/.test(select('.branch-select-menu i')!.textContent!);
+	// The button already exists on repos you can push to.
+	const existingButton = select('a[aria-label="Edit this file"]');
+	if (existingButton) {
+		if (isPermalink_) {
+			// GitHub has a broken link in this case #2997
+			existingButton.href = String(url);
+		}
 
-	const filename = readmeHeader.textContent!.trim();
-	const pathnameParts = select<HTMLAnchorElement>(`.files [title="${filename}"]`)!.pathname.split('/');
-	pathnameParts[3] = 'edit'; // Replaces /blob/
-	if (isPermalink) {
-		pathnameParts[4] = await getDefaultBranch(); // Replaces /${tag|commit}/
+		return;
 	}
 
 	readmeHeader.after(
-		<a href={pathnameParts.join('/')}
+		<a
+			href={String(url)}
 			className="Box-btn-octicon btn-octicon float-right"
-			aria-label="Edit this file">
-			{icons.edit()}
+			aria-label="Edit this file"
+		>
+			<PencilIcon/>
 		</a>
 	);
 }
 
-features.add({
-	id: __featureName__,
-	description: 'Adds an Edit button on previewed Readmes in folders, even if you have to make a fork.',
-	screenshot: 'https://user-images.githubusercontent.com/1402241/62073307-a8378880-b26a-11e9-9e31-be6525d989d2.png',
+void features.add(__filebasename, {
 	include: [
-		features.isRepoTree
+		pageDetect.isRepoTree
 	],
-	load: features.onAjaxedPages,
+	awaitDomReady: false,
 	init
 });
